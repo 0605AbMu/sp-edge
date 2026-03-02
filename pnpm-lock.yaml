@@ -8,9 +8,15 @@ importers:
 
   .:
     dependencies:
+      konva:
+        specifier: ^10.2.0
+        version: 10.2.0
       vue:
         specifier: ^3.5.25
         version: 3.5.29(typescript@5.9.3)
+      vue-konva:
+        specifier: ^3.3.0
+        version: 3.3.0(konva@10.2.0)(vue@3.5.29(typescript@5.9.3))
     devDependencies:
       '@types/node':
         specifier: ^24.10.1
@@ -434,6 +440,9 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
+  konva@10.2.0:
+    resolution: {integrity: sha512-JBoz0Xjbf49UPxCZegZ4WseqOzJ+C4AUDOtJ9eBve5RS5Fcq/u8TdBD5fDl/uPFInpC3a9uycm0sRyZpF4hheg==}
+
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
@@ -522,6 +531,13 @@ packages:
 
   vscode-uri@3.1.0:
     resolution: {integrity: sha512-/BpdSx+yCQGnCvecbyXdxHDkuk55/G3xwnC0GqY4gmQ3j+A+g8kzzgB4Nk/SINjqn6+waqw3EgbVF2QKExkRxQ==}
+
+  vue-konva@3.3.0:
+    resolution: {integrity: sha512-z7yB4VSyYaBAfRRlNCaxINp3+h0lpy+C9wm+FeQ0rBZylGRBMbNOOQbURjNdsS/uo3togcWz8jrM+0TVTDUTeQ==}
+    engines: {node: '>= 4.0.0', npm: '>= 3.0.0'}
+    peerDependencies:
+      konva: '>7'
+      vue: ^3
 
   vue-tsc@3.2.5:
     resolution: {integrity: sha512-/htfTCMluQ+P2FISGAooul8kO4JMheOTCbCy4M6dYnYYjqLe3BExZudAua6MSIKSFYQtFOYAll7XobYwcpokGA==}
@@ -846,6 +862,8 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
+  konva@10.2.0: {}
+
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -921,6 +939,11 @@ snapshots:
       fsevents: 2.3.3
 
   vscode-uri@3.1.0: {}
+
+  vue-konva@3.3.0(konva@10.2.0)(vue@3.5.29(typescript@5.9.3)):
+    dependencies:
+      konva: 10.2.0
+      vue: 3.5.29(typescript@5.9.3)
 
   vue-tsc@3.2.5(typescript@5.9.3):
     dependencies:
