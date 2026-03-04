@@ -3,6 +3,7 @@ import { computed, ref, onMounted } from 'vue'
 import ParkingSlot from './ParkingSlot.vue'
 import ParkingSlotGroup from './ParkingSlotGroup.vue'
 import SlotArea from './SlotArea.vue'
+import Camera from './Camera.vue'
 
 interface Slot {
   id: string
@@ -34,12 +35,14 @@ const props = defineProps<{
   slots: Slot[]
   slotGroups: SlotGroup[]
   slotAreas: any[]
+  cameras: any[]
+  selectedCameraId: string | null
   isDrawn: boolean
   pixelsPerMeter: number
   textScale: number
 }>()
 
-const emit = defineEmits(['transform', 'dragmove', 'mouseenter', 'mouseleave', 'click', 'delete-slot-area', 'rotate-slot-area', 'edit-slot-area', 'update-slot-area-position'])
+const emit = defineEmits(['transform', 'dragmove', 'mouseenter', 'mouseleave', 'click', 'delete-slot-area', 'rotate-slot-area', 'edit-slot-area', 'update-slot-area-position', 'delete-camera', 'select-camera', 'update-camera-body', 'update-camera-corner'])
 
 const isHovered = ref(false)
 
@@ -124,6 +127,25 @@ const tooltipText = computed(() => {
         @rotate="emit('rotate-slot-area', area.id)"
         @edit="emit('edit-slot-area', $event)"
         @update-position="(pos) => emit('update-slot-area-position', { id: area.id, ...pos })"
+      />
+
+      <!-- Kameralar -->
+      <Camera
+        v-for="cam in cameras"
+        :key="cam.id"
+        :id="cam.id"
+        :x="cam.x"
+        :y="cam.y"
+        :corners="cam.corners"
+        :textScale="textScale"
+        :parkingWidth="config.width"
+        :parkingHeight="config.height"
+        :pixelsPerMeter="pixelsPerMeter"
+        :isSelected="cam.id === selectedCameraId"
+        @delete="emit('delete-camera', cam.id)"
+        @select="emit('select-camera', $event)"
+        @update-body="emit('update-camera-body', $event)"
+        @update-corner="emit('update-camera-corner', $event)"
       />
     </v-group>
   </v-group>
