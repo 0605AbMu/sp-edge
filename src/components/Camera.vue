@@ -11,22 +11,29 @@ const props = defineProps<{
   parkingHeight: number
   pixelsPerMeter: number
   isSelected: boolean
+  isReadonly?: boolean
 }>()
 
-const emit = defineEmits(['select', 'update-body', 'update-corner', 'delete'])
+const emit = defineEmits(['select', 'update-body', 'update-corner', 'dragmove'])
 
 const isBodyHovered = ref(false)
 const hoveredCorner = ref<number | null>(null)
-
-// Drag boshlanganda body va corners ning snapshot'i
+const isDragging = ref(false)
+const liveDragOffset = ref({ dx: 0, dy: 0 })
 const dragSnapshot = ref<{ bodyX: number; bodyY: number; corners: number[] } | null>(null)
 
 const handleDragStart = () => {
-  dragSnapshot.value = {
-    bodyX: props.x,
-    bodyY: props.y,
-    corners: [...props.corners]
-  }
+  dragSnapshot.value = { bodyX: props.x, bodyY: props.y, corners: [...props.corners] }
+  isDragging.value = true
+  liveDragOffset.value = { dx: 0, dy: 0 }
+}
+
+const handleDragMove = (e: any) => {
+  if (!dragSnapshot.value) return
+  const dx = e.currentTarget.x() - dragSnapshot.value.bodyX
+  const dy = e.currentTarget.y() - dragSnapshot.value.bodyY
+  liveDragOffset.value = { dx, dy }
+  emit('dragmove', e)
 }
 
 const handleDragEnd = (e: any) => {
@@ -38,37 +45,51 @@ const handleDragEnd = (e: any) => {
   const newCorners = dragSnapshot.value.corners.map((v, i) => i % 2 === 0 ? v + dx : v + dy)
   emit('update-body', { id: props.id, x: newX, y: newY, corners: newCorners })
   dragSnapshot.value = null
+  isDragging.value = false
+  liveDragOffset.value = { dx: 0, dy: 0 }
 }
 
-const centroid = computed(() => ({
-  x: (props.corners[0] + props.corners[2] + props.corners[4] + props.corners[6]) / 4,
-  y: (props.corners[1] + props.corners[3] + props.corners[5] + props.corners[7]) / 4
-}))
-
-const facingAngle = computed(() =>
-  Math.atan2(centroid.value.y - props.y, centroid.value.x - props.x)
-)
-
-// Icon ichidagi yo'nalish vektori (local koords, icon rotate bo'lmaydi)
-const arrowDx = computed(() => Math.cos(facingAngle.value))
-const arrowDy = computed(() => Math.sin(facingAngle.value))
-
-const bodyTooltipText = computed(() => {
-  const p = props.pixelsPerMeter
-  return `Kamera: (${(props.x / p).toFixed(1)}m, ${(props.y / p).toFixed(1)}m)`
+// Drag paytida corners live siljiydi
+const displayCorners = computed(() => {
+  const { dx, dy } = liveDragOffset.value
+  if (!isDragging.value || (dx === 0 && dy === 0)) return props.corners
+  return props.corners.map((v, i) => i % 2 === 0 ? v + dx : v + dy)
 })
 
-const cornerTooltip = (i: number) => {
-  const p = props.pixelsPerMeter
-  return `B${i + 1}: (${(props.corners[i * 2] / p).toFixed(1)}m, ${(props.corners[i * 2 + 1] / p).toFixed(1)}m)`
-}
+// Drag paytida camera markaziy pozitsiyasi
+const displayX = computed(() => isDragging.value ? props.x + liveDragOffset.value.dx : props.x)
+const displayY = computed(() => isDragging.value ? props.y + liveDragOffset.value.dy : props.y)
 
-// Kamera ikonasi uchun ranglar
-const bodyColor = computed(() =>
-  isBodyHovered.value ? '#1565c0' : (props.isSelected ? '#0d47a1' : '#1976d2')
+const centroid = computed(() => {
+  const c = displayCorners.value
+  return {
+    x: (c[0] + c[2] + c[4] + c[6]) / 4,
+    y: (c[1] + c[3] + c[5] + c[7]) / 4
+  }
+})
+
+const facingAngleDeg = computed(() =>
+  Math.atan2(centroid.value.y - displayY.value, centroid.value.x - displayX.value) * 180 / Math.PI
 )
 
-// Icon group uchun dragBoundFunc — parent = Camera root group (parking origin)
+// Shoelace formula — kuzatuv maydoni (m²)
+const coverageAreaM2 = computed(() => {
+  const c = displayCorners.value
+  const p = props.pixelsPerMeter
+  const areaPx2 = 0.5 * Math.abs(
+    c[0] * (c[3] - c[7]) +
+    c[2] * (c[5] - c[1]) +
+    c[4] * (c[7] - c[3]) +
+    c[6] * (c[1] - c[5])
+  )
+  return (areaPx2 / (p * p)).toFixed(1)
+})
+
+
+const bodyColor = computed(() =>
+  isBodyHovered.value ? '#00acc1' : (props.isSelected ? '#0097a7' : '#00bcd4')
+)
+
 const iconDragBound = function (this: any, pos: { x: number; y: number }) {
   const parentPos = this.getParent().getAbsolutePosition()
   const scale = this.getStage().scaleX()
@@ -79,7 +100,6 @@ const iconDragBound = function (this: any, pos: { x: number; y: number }) {
   return { x: lx * scale + parentPos.x, y: ly * scale + parentPos.y }
 }
 
-// Burchak tutqichlari uchun dragBoundFunc
 const cornerDragBound = function (this: any, pos: { x: number; y: number }) {
   const parentPos = this.getParent().getParent().getAbsolutePosition()
   const scale = this.getStage().scaleX()
@@ -90,7 +110,6 @@ const cornerDragBound = function (this: any, pos: { x: number; y: number }) {
   return { x: lx * scale + parentPos.x, y: ly * scale + parentPos.y }
 }
 
-
 const handleCornerDragEnd = (e: any, index: number) => {
   emit('update-corner', { id: props.id, index, x: e.target.x(), y: e.target.y() })
 }
@@ -99,179 +118,195 @@ const handleCornerDragEnd = (e: any, index: number) => {
 <template>
   <v-group :config="{ name: 'camera', id }">
 
-    <!-- ═══ COVERAGE: faqat aktiv holda ko'rinadi ═══ -->
-    <template v-if="isSelected">
+    <!-- ═══ COVERAGE: Har doim ko'rinadi (z-index pastroqda bo'lishi uchun oldinroq chiziladi) ═══ -->
+    <!-- Kuzatuv maydoni to'ldirish -->
+    <v-line :config="{
+      points: displayCorners,
+      fill: isSelected || isDragging ? (isReadonly ? 'rgba(0,255,100,0.3)' : 'rgba(0,220,255,0.25)') : (isReadonly ? 'rgba(0,255,100,0.15)' : 'rgba(0,220,255,0.12)'),
+      stroke: isSelected || isDragging ? (isReadonly ? 'rgba(0,255,100,0.9)' : 'rgba(0,220,255,0.8)') : (isReadonly ? 'rgba(0,255,100,0.5)' : 'rgba(0,220,255,0.4)'),
+      strokeWidth: isSelected ? 2 : 1.5,
+      closed: true,
+      listening: false
+    }" />
 
-      <v-line :config="{
-        points: corners,
-        fill: 'rgba(33,150,243,0.12)',
-        stroke: 'rgba(33,150,243,0.5)',
-        strokeWidth: 1,
-        closed: true,
-        listening: false
-      }" />
+    <!-- Kameradan burchaklargacha nurlar -->
+    <v-line v-for="i in 4" :key="'ray-' + i" :config="{
+      points: [displayX, displayY, displayCorners[(i - 1) * 2], displayCorners[(i - 1) * 2 + 1]],
+      stroke: isSelected || isDragging ? (isReadonly ? 'rgba(0,255,100,0.4)' : 'rgba(0,220,255,0.3)') : (isReadonly ? 'rgba(0,255,100,0.25)' : 'rgba(0,220,255,0.2)'),
+      strokeWidth: 0.8,
+      dash: [6, 4],
+      listening: false
+    }" />
 
-      <v-line v-for="i in 4" :key="'ray-' + i" :config="{
-        points: [x, y, corners[(i - 1) * 2], corners[(i - 1) * 2 + 1]],
-        stroke: 'rgba(33,150,243,0.3)',
-        strokeWidth: 0.8,
-        dash: [5, 4],
-        listening: false
-      }" />
+    <!-- ═══ BOSHQA ELEMENTLAR ═══ -->
+    <!-- Maydon hajmi — har doim markazda ko'rinadi -->
+    <v-group :config="{ x: centroid.x, y: centroid.y, listening: false }">
+      <v-label :config="{ scaleX: textScale, scaleY: textScale, listening: false }">
+        <v-tag :config="{
+          fill: 'rgba(0,0,0,0.65)',
+          cornerRadius: 4,
+          stroke: isReadonly ? 'rgba(0,255,100,0.6)' : 'rgba(0,220,255,0.5)',
+          strokeWidth: 1 / textScale
+        }" />
+        <v-text :config="{
+          text: coverageAreaM2 + ' m²',
+          fontSize: 13,
+          fill: isReadonly ? '#00ff64' : '#00dfff',
+          fontStyle: 'bold',
+          padding: 5,
+          listening: false,
+          align: 'center',
+          verticalAlign: 'middle'
+        }" />
+      </v-label>
+    </v-group>
 
-      <!-- Burchak tutqichlari -->
-      <template v-for="i in 4" :key="'c-' + i">
-        <v-circle :config="{
-          x: corners[(i - 1) * 2],
-          y: corners[(i - 1) * 2 + 1],
-          radius: 5,
-          fill: hoveredCorner === i - 1 ? '#f57c00' : 'white',
-          stroke: '#f57c00',
-          strokeWidth: 2,
-          draggable: true,
-          scaleX: textScale,
-          scaleY: textScale,
-          dragBoundFunc: cornerDragBound,
-          name: 'cameraCorner'
-        }"
-          @mouseenter="hoveredCorner = i - 1"
-          @mouseleave="hoveredCorner = null"
-          @dragend="(e: any) => handleCornerDragEnd(e, i - 1)"
-        />
-
-        <v-label v-if="hoveredCorner === i - 1" :config="{
-          x: corners[(i - 1) * 2],
-          y: corners[(i - 1) * 2 + 1] - 16 * textScale,
-          scaleX: textScale,
-          scaleY: textScale
-        }">
-          <v-tag :config="{ fill: '#e65100', opacity: 0.9, pointerDirection: 'down', pointerWidth: 5, pointerHeight: 5, lineJoin: 'round', cornerRadius: 3 }" />
-          <v-text :config="{ text: cornerTooltip(i - 1), fontSize: 11, fill: 'white', padding: 5, listening: false }" />
-        </v-label>
+    <template v-if="isSelected || isDragging">
+      <!-- Burchak tutqichlari (faqat isSelected da) -->
+      <template v-if="isSelected && !isDragging && !isReadonly">
+        <template v-for="i in 4" :key="'c-' + i">
+          <v-circle :config="{
+            x: displayCorners[(i - 1) * 2],
+            y: displayCorners[(i - 1) * 2 + 1],
+            radius: 8,
+            fill: hoveredCorner === i - 1 ? '#ff9800' : '#fff',
+            stroke: '#ff9800',
+            strokeWidth: 3,
+            draggable: true,
+            scaleX: textScale,
+            scaleY: textScale,
+            dragBoundFunc: cornerDragBound,
+            name: 'cameraCorner',
+            shadowColor: 'black',
+            shadowBlur: 4,
+            shadowOpacity: 0.3,
+            offsetX: 0,
+            offsetY: 0
+          }"
+            @mouseenter="hoveredCorner = i - 1"
+            @mouseleave="hoveredCorner = null"
+            @dragend="(e: any) => handleCornerDragEnd(e, i - 1)"
+          />
+        </template>
       </template>
 
     </template>
 
-    <!-- ═══ KAMERA IKONASI — masshtab ta'sir qilmaydi ═══ -->
+    <!-- ═══ OUTDOOR BULLET CAMERA IKONASI ═══ -->
     <v-group
       :config="{
         x, y,
         scaleX: textScale,
         scaleY: textScale,
-        draggable: true,
+        draggable: !isReadonly,
         dragBoundFunc: iconDragBound,
-        name: 'cameraBody'
+        name: 'cameraBody',
+        offsetX: 0,
+        offsetY: 0
       }"
-      @mouseenter="isBodyHovered = true"
+      @mouseenter="isBodyHovered = !isReadonly"
       @mouseleave="isBodyHovered = false"
       @click="emit('select', id)"
       @dragstart="handleDragStart"
+      @dragmove="handleDragMove"
       @dragend="handleDragEnd"
     >
-      <!-- Tanlov halqasi (active) -->
+      <!-- Tanlov halqasi -->
       <v-rect v-if="isSelected" :config="{
-        x: -25, y: -24, width: 50, height: 38,
+        x: -14, y: -14, width: 28, height: 28,
         fill: 'transparent',
-        stroke: '#90caf9',
-        strokeWidth: 1.5,
-        cornerRadius: 8,
-        dash: [5, 3],
+        stroke: '#00dfff',
+        strokeWidth: 1.5 / textScale,
+        dash: [4 / textScale, 3 / textScale],
+        cornerRadius: 6,
         listening: false
       }" />
 
-      <!-- Yo'nalish o'qi -->
-      <v-line :config="{
-        points: [arrowDx * 22, arrowDy * 22, arrowDx * 40, arrowDy * 40],
-        stroke: isSelected ? '#90caf9' : 'rgba(255,255,255,0.8)',
-        strokeWidth: 2,
-        listening: false
-      }" />
-
-      <!-- Kamera tanasi (asosiy korpus) -->
+      <!-- Devor kreplaj plitasi (qorong'i kvadrat, aylanmaydi) -->
       <v-rect :config="{
-        x: -22, y: -13, width: 44, height: 26,
-        fill: bodyColor,
+        x: -12, y: -12, width: 24, height: 24,
+        fill: '#1e2535',
+        stroke: isSelected ? '#00dfff' : (isBodyHovered ? '#4a90d9' : '#2e3d50'),
+        strokeWidth: 1.5 / textScale,
         cornerRadius: 5,
-        shadowColor: 'rgba(0,0,0,0.35)',
-        shadowBlur: 4,
-        shadowOffset: { x: 0, y: 2 }
+        shadowColor: 'rgba(0,0,0,0.8)',
+        shadowBlur: 6,
+        shadowOffset: { x: 1, y: 2 }
       }" />
-
-      <!-- Vizörnik (tepadagi kichik bo'rtma) -->
+      <!-- L-bracket ichki qirqim -->
       <v-rect :config="{
-        x: -7, y: -19, width: 14, height: 7,
-        fill: bodyColor,
-        cornerRadius: 2
-      }" />
-
-      <!-- Ob'ektiv — tashqi halqa -->
-      <v-circle :config="{
-        x: 0, y: 0,
-        radius: 11,
-        fill: '#1a237e',
-        stroke: 'rgba(255,255,255,0.25)',
-        strokeWidth: 1.5
-      }" />
-
-      <!-- Ob'ektiv — o'rta qatlam -->
-      <v-circle :config="{
-        x: 0, y: 0,
-        radius: 7.5,
-        fill: '#0d0d2b'
-      }" />
-
-      <!-- Ob'ektiv — markaziy nuqta -->
-      <v-circle :config="{
-        x: 0, y: 0,
-        radius: 3.5,
-        fill: '#263238'
-      }" />
-
-      <!-- Ob'ektiv — yorug'lik aks -->
-      <v-circle :config="{
-        x: -3, y: -3,
-        radius: 2.5,
-        fill: 'rgba(255,255,255,0.32)',
+        x: 4, y: -8, width: 14, height: 16,
+        fill: '#162030',
+        cornerRadius: [0, 3, 3, 0],
         listening: false
       }" />
 
-      <!-- Chap tomon tugmachasi (detal) -->
-      <v-rect :config="{
-        x: -22, y: -6, width: 4, height: 8,
-        fill: 'rgba(255,255,255,0.15)',
-        cornerRadius: 1,
-        listening: false
-      }" />
+      <!-- Kamera yo'nalishida aylanadigan qism (+X = linza = coverage tomonga) -->
+      <v-group :config="{ rotation: facingAngleDeg }">
+
+        <!-- Bracket arm -->
+        <v-rect :config="{
+          x: 10, y: -5, width: 16, height: 10,
+          fill: '#2e3d50',
+          cornerRadius: 2
+        }" />
+
+        <!-- Arm-body ulanish nuqtasi -->
+        <v-rect :config="{
+          x: 23, y: -12, width: 6, height: 24,
+          fill: '#253040',
+          cornerRadius: 1
+        }" />
+
+        <!-- === KAMERA ASOSIY KORPUSI (oq/kulrang, engil rang) === -->
+        <!-- Pastki soya (3D ko'rinish) -->
+        <v-rect :config="{
+          x: 27, y: 5, width: 32, height: 7,
+          fill: '#8fa8bc',
+          cornerRadius: [0, 0, 3, 0],
+          listening: false
+        }" />
+
+        <!-- Asosiy kuzov (oq-kulrang) -->
+        <v-rect :config="{
+          x: 27, y: -12, width: 32, height: 17,
+          fill: '#d0dce8',
+          cornerRadius: [3, 3, 0, 0]
+        }" />
+
+        <!-- Yuqori yog'du chizig'i (highlight) -->
+        <v-rect :config="{
+          x: 30, y: -12, width: 26, height: 4,
+          fill: '#e8f0f8',
+          cornerRadius: [3, 3, 0, 0],
+          listening: false
+        }" />
+
+        <!-- Quyosh qalqoni/visor (eng yuqorida) -->
+        <v-rect :config="{
+          x: 25, y: -18, width: 30, height: 7,
+          fill: '#a0b8cc',
+          cornerRadius: [3, 3, 0, 0]
+        }" />
+
+        <!-- Old qopqoq (+X tomon, coverage tomoni) -->
+        <v-rect :config="{
+          x: 55, y: -13, width: 4, height: 26,
+          fill: '#253040',
+          cornerRadius: [0, 2, 2, 0]
+        }" />
+
+        <!-- Status LED -->
+        <v-circle :config="{
+          x: 32, y: -8,
+          radius: 2,
+          fill: isSelected ? '#00e676' : '#2ecc71',
+          listening: false
+        }" />
+
+      </v-group>
     </v-group>
 
-    <!-- ═══ TOOLTIP — hover bo'lganda ═══ -->
-    <v-label v-if="isBodyHovered" :config="{
-      x,
-      y: y - 28 * textScale,
-      scaleX: textScale,
-      scaleY: textScale
-    }">
-      <v-tag :config="{
-        fill: '#0d47a1', opacity: 0.9,
-        pointerDirection: 'down', pointerWidth: 6, pointerHeight: 6,
-        lineJoin: 'round', cornerRadius: 4
-      }" />
-      <v-text :config="{
-        text: bodyTooltipText,
-        fontSize: 11, fill: 'white', padding: 6, listening: false
-      }" />
-    </v-label>
-
-    <!-- ═══ O'CHIRISH TUGMASI ═══ -->
-    <v-group v-if="isBodyHovered" :config="{
-      x: x + 26 * textScale,
-      y: y - 22 * textScale,
-      scaleX: textScale,
-      scaleY: textScale
-    }">
-      <v-circle :config="{ x: 0, y: 0, radius: 12, fill: 'white', stroke: 'red' }" @click="emit('delete', id)" />
-      <v-text :config="{ text: '×', x: -7, y: -9, fontSize: 18, fill: 'red', listening: false }" />
-    </v-group>
-
+    <!-- ═══ TOOLTIP (Removed, now global) ═══ -->
   </v-group>
 </template>

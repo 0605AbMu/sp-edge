@@ -32,11 +32,35 @@ const props = defineProps<{
   textScale: number
   parkingWidth: number
   parkingHeight: number
+  isReadonly?: boolean
 }>()
 
-const emit = defineEmits(['mouseenter', 'mouseleave', 'delete', 'rotate', 'edit', 'update-position'])
+const emit = defineEmits(['edit', 'update-position', 'dragmove', 'hover-change'])
 
 const isHovered = ref(false)
+
+const handleMouseEnter = (e: any) => {
+  isHovered.value = true
+  emit('hover-change', {
+    id: props.id,
+    isHovered: true,
+    x: props.config.x,
+    y: props.config.y,
+    width: localBounds.value.width,
+    height: localBounds.value.height,
+    slotCount: props.slotCount,
+    pixelsPerMeter: props.pixelsPerMeter,
+    rotation: props.config.rotation || 0
+  })
+}
+
+const handleMouseLeave = (e: any) => {
+  isHovered.value = false
+  emit('hover-change', {
+    id: props.id,
+    isHovered: false
+  })
+}
 
 const handleDrag = (e: any) => {
   const node = e.currentTarget
@@ -44,6 +68,7 @@ const handleDrag = (e: any) => {
     x: node.x(),
     y: node.y()
   })
+  emit('dragmove', e)
 }
 
 const slantOffset = computed(() => {
@@ -57,10 +82,13 @@ const localBounds = computed(() => {
   const totalWidth = props.slotCount * sw
   const sOffset = slantOffset.value
   
+  const minX = Math.min(0, sOffset)
+  const maxX = Math.max(totalWidth, totalWidth + sOffset)
+  
   return {
-    x: Math.min(0, sOffset),
+    x: 0,
     y: 0,
-    width: totalWidth + Math.abs(sOffset),
+    width: maxX - minX,
     height: props.slotHeight * props.pixelsPerMeter
   }
 })
@@ -70,22 +98,23 @@ const generatedSlots = computed(() => {
   const sw = props.slotWidth * props.pixelsPerMeter
   const sh = props.slotHeight * props.pixelsPerMeter
   const sOffset = slantOffset.value
-
+  const offsetX = -Math.min(0, sOffset) // Agar qiyalik chapga bo'lsa, slotlarni o'ngga suramiz
+  
   for (let i = 0; i < props.slotCount; i++) {
-    const startX = i * sw
+    const startX = i * sw + offsetX
     
     // To'rtburchak o'rniga ixtiyoriy burchakli polygon (points) ishlatamiz
     // Nuqtalar tartibi: [x1, y1, x2, y2, x3, y3, x4, y4]
     const points = [
       startX, 0,                      // Yuqori chap
       startX + sw, 0,                 // Yuqori o'ng
-      startX + sw + sOffset, sh,  // Pastki o'ng (surilgan)
-      startX + sOffset, sh        // Pastki chap (surilgan)
+      startX + sw + sOffset, sh,      // Pastki o'ng (surilgan)
+      startX + sOffset, sh            // Pastki chap (surilgan)
     ]
 
-    // Center in parking coords (meters)
-    const cxPx = props.config.x + i * sw + (sw + sOffset) / 2
-    const cyPx = props.config.y + sh / 2
+    // Center in group local coords (meters)
+    const cxPx = startX + (sw + sOffset) / 2
+    const cyPx = sh / 2
 
     slots.push({
       id: `generated-${i}`,
@@ -104,10 +133,10 @@ const bounds = computed(() => {
 
   // Barcha nuqtalarni yig'amiz (slantni hisobga olib, lekin rotation'siz)
   const basePoints = [
-    { x: lb.x, y: lb.y },
-    { x: lb.x + lb.width, y: lb.y },
-    { x: lb.x + lb.width, y: lb.y + lb.height },
-    { x: lb.x, y: lb.y + lb.height }
+    { x: 0, y: lb.y },
+    { x: lb.width, y: lb.y },
+    { x: lb.width, y: lb.y + lb.height },
+    { x: 0, y: lb.y + lb.height }
   ]
 
   // Endi bu nuqtalarni rotation bo'yicha aylantiramiz
@@ -130,7 +159,7 @@ const mainGroupConfig = computed(() => ({
   id: props.id,
   x: props.config.x,
   y: props.config.y,
-  draggable: props.config.draggable,
+  draggable: !props.isReadonly && props.config.draggable,
   name: 'slotArea',
   dragBoundFunc: function(this: any, pos: { x: number, y: number }) {
     const node = this
@@ -161,25 +190,8 @@ const rotatedGroupConfig = computed(() => ({
   rotation: props.config.rotation || 0
 }))
 
-const handleMouseEnter = (e: any) => {
-  isHovered.value = true
-  emit('mouseenter', e)
-}
-
-const handleMouseLeave = (e: any) => {
-  isHovered.value = false
-  emit('mouseleave', e)
-}
-
-const tooltipText = computed(() => {
-  const x_m = (props.config.x / props.pixelsPerMeter).toFixed(2)
-  const y_m = (props.config.y / props.pixelsPerMeter).toFixed(2)
-  const w_m = props.slotWidth.toFixed(2)
-  const h_m = props.slotHeight.toFixed(2)
-  return `x: ${x_m}m  y: ${y_m}m\nw: ${w_m}m  h: ${h_m}m\nangle: ${props.slotAngle}°\nslots: ${props.slotCount}`
-})
-
-const handleEdit = (e: any) => {
+const handleClick = (e: any) => {
+  if (props.isReadonly) return
   const stage = e.target.getStage()
   const pointer = stage.getPointerPosition()
   if (pointer) {
@@ -197,25 +209,25 @@ const handleEdit = (e: any) => {
 </script>
 
 <template>
-  <v-group 
+  <v-group
     :config="mainGroupConfig"
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
     @dragmove="handleDrag"
     @dragend="handleDrag"
+    @click="handleClick"
   >
     <v-group :config="rotatedGroupConfig">
       <!-- Background for Slot Area -->
       <v-rect :config="{
-        x: localBounds.x,
-        y: localBounds.y,
+        x: 0,
+        y: 0,
         width: localBounds.width,
         height: localBounds.height,
-        fill: '#f0f0f0',
-        opacity: isHovered ? 0.3 : 0.15,
-        stroke: isHovered ? 'blue' : 'gray',
-        strokeWidth: 1,
-        dash: isHovered ? [2, 2] : [5, 5],
+        fill: '#1a1a1a',
+        opacity: 0.5,
+        stroke: isHovered && !isReadonly ? '#00bfff' : '#ffffff',
+        strokeWidth: isHovered && !isReadonly ? 2 : 1,
         listening: true
       }" />
 
@@ -225,26 +237,6 @@ const handleEdit = (e: any) => {
         :textScale="textScale"
         :rotation="props.config.rotation || 0"
       />
-    </v-group>
-    
-    <v-label v-if="isHovered" :config="{ x: bounds.minX, y: bounds.minY - 5, scaleX: textScale, scaleY: textScale }">
-      <v-tag :config="{ fill: 'black', opacity: 0.7, pointerDirection: 'down', pointerWidth: 8, pointerHeight: 8, lineJoin: 'round', cornerRadius: 4 }" />
-      <v-text :config="{ text: tooltipText, fontSize: 12, fill: 'white', padding: 6, lineHeight: 1.5, listening: false }" />
-    </v-label>
-
-    <!-- Rotate, Edit va Delete tugmalari - har doim yuqori o'ng burchakda -->
-    <v-group v-if="isHovered" :config="{ x: bounds.maxX, y: bounds.minY, scaleX: textScale, scaleY: textScale }">
-      <!-- Rotate button -->
-      <v-circle :config="{ x: -65, y: 15, radius: 12, fill: 'white', stroke: 'blue' }" @click="emit('rotate')" />
-      <v-text :config="{ text: '↻', x: -72, y: 7, fontSize: 16, fill: 'blue', listening: false }" />
-
-      <!-- Edit button -->
-      <v-circle :config="{ x: -40, y: 15, radius: 12, fill: 'white', stroke: 'green' }" @click="handleEdit" />
-      <v-text :config="{ text: '✎', x: -46, y: 6, fontSize: 14, fill: 'green', listening: false }" />
-
-      <!-- Delete button -->
-      <v-circle :config="{ x: -15, y: 15, radius: 12, fill: 'white', stroke: 'red' }" @click="emit('delete')" />
-      <v-text :config="{ text: '×', x: -22, y: 5, fontSize: 18, fill: 'red', listening: false }" />
     </v-group>
   </v-group>
 </template>

@@ -4,6 +4,7 @@ import ParkingSlot from './ParkingSlot.vue'
 import ParkingSlotGroup from './ParkingSlotGroup.vue'
 import SlotArea from './SlotArea.vue'
 import Camera from './Camera.vue'
+import Gate from './Gate.vue'
 
 interface Slot {
   id: string
@@ -37,12 +38,17 @@ const props = defineProps<{
   slotAreas: any[]
   cameras: any[]
   selectedCameraId: string | null
+  isReadonly?: boolean
   isDrawn: boolean
   pixelsPerMeter: number
   textScale: number
 }>()
 
-const emit = defineEmits(['transform', 'dragmove', 'mouseenter', 'mouseleave', 'click', 'delete-slot-area', 'rotate-slot-area', 'edit-slot-area', 'update-slot-area-position', 'delete-camera', 'select-camera', 'update-camera-body', 'update-camera-corner'])
+const emit = defineEmits([
+  'transform', 'dragmove', 'click', 
+  'delete-slot-area', 'rotate-slot-area', 'edit-slot-area', 'update-slot-area-position', 
+  'dragmove-slot-area', 'slot-area-hover-change'
+])
 
 const isHovered = ref(false)
 
@@ -50,24 +56,13 @@ const areaConfig = computed(() => ({
   ...props.config,
   draggable: false,
   listening: true,
-  name: 'mainRect'
+  name: 'mainRect',
+  stroke: '#f5c518',
+  strokeWidth: 4
 }))
 
-const handleMouseEnter = (e: any) => {
-  isHovered.value = true
-  emit('mouseenter', e)
-}
-const handleMouseLeave = (e: any) => {
-  isHovered.value = false
-  emit('mouseleave', e)
-}
 const handleClick = (e: any) => emit('click', e)
 
-const tooltipText = computed(() => {
-  const w_m = (props.config.width / props.pixelsPerMeter).toFixed(2)
-  const h_m = (props.config.height / props.pixelsPerMeter).toFixed(2)
-  return `w: ${w_m}m, h: ${h_m}m`
-})
 </script>
 
 <template>
@@ -75,20 +70,9 @@ const tooltipText = computed(() => {
     <!-- Asosiy parking maydoni -->
     <v-rect 
       :config="areaConfig"
-      @mouseenter="handleMouseEnter"
-      @mouseleave="handleMouseLeave"
+      @mouseenter="isHovered = true"
+      @mouseleave="isHovered = false"
     />
-
-    <!-- Parking Tooltip (Hoverda o'lchamlarni ko'rsatish) -->
-    <v-label v-if="isHovered && isDrawn" :config="{ 
-      x: config.x, 
-      y: config.y - 5, 
-      scaleX: textScale, 
-      scaleY: textScale 
-    }">
-      <v-tag :config="{ fill: 'black', opacity: 0.7, pointerDirection: 'bottom', pointerWidth: 10, pointerHeight: 10, lineJoin: 'round', cornerRadius: 5 }" />
-      <v-text :config="{ text: tooltipText, fontSize: 12, fill: 'white', padding: 5 }" />
-    </v-label>
 
     <!-- Parking ichidagi elementlar (faqat maydon chizib bo'lingandan keyin) -->
     <v-group v-if="isDrawn" :config="{ x: config.x, y: config.y }">
@@ -123,29 +107,11 @@ const tooltipText = computed(() => {
         :textScale="textScale"
         :parkingWidth="config.width"
         :parkingHeight="config.height"
-        @delete="emit('delete-slot-area', area.id)"
-        @rotate="emit('rotate-slot-area', area.id)"
+        :isReadonly="isReadonly"
         @edit="emit('edit-slot-area', $event)"
         @update-position="(pos) => emit('update-slot-area-position', { id: area.id, ...pos })"
-      />
-
-      <!-- Kameralar -->
-      <Camera
-        v-for="cam in cameras"
-        :key="cam.id"
-        :id="cam.id"
-        :x="cam.x"
-        :y="cam.y"
-        :corners="cam.corners"
-        :textScale="textScale"
-        :parkingWidth="config.width"
-        :parkingHeight="config.height"
-        :pixelsPerMeter="pixelsPerMeter"
-        :isSelected="cam.id === selectedCameraId"
-        @delete="emit('delete-camera', cam.id)"
-        @select="emit('select-camera', $event)"
-        @update-body="emit('update-camera-body', $event)"
-        @update-corner="emit('update-camera-corner', $event)"
+        @dragmove="emit('dragmove-slot-area', $event)"
+        @hover-change="emit('slot-area-hover-change', $event)"
       />
     </v-group>
   </v-group>

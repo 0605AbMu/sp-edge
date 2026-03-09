@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
+import { ref, shallowRef, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import ParkingArea from './components/ParkingArea.vue'
-import SlotEdit from './components/SlotEdit.vue'
+import RoadArea from './components/RoadArea.vue'
+import Camera from './components/Camera.vue'
+import Gate from './components/Gate.vue'
+import PropertiesPanel from './components/PropertiesPanel.vue'
+import Ruler from './components/Ruler.vue'
 
 // Transformer ref olib tashlandi (mainRect uchun endi kerak emas)
 const configKonva = ref({
@@ -9,10 +13,11 @@ const configKonva = ref({
   height: 0,
   scaleX: 1,
   scaleY: 1,
-  x: 0,
+  x: 280, // Sidebar width
   y: 0,
   textScale: 1
 })
+
 
 const configDeleteButton = ref({
   x: 0,
@@ -26,6 +31,8 @@ const configDeleteButton = ref({
 })
 
 const configDeleteText = ref({
+  x: 0,
+  y: 0,
   text: '×',
   fontSize: 16,
   fill: 'white',
@@ -38,6 +45,9 @@ const configDeleteText = ref({
   scaleX: 1,
   scaleY: 1
 })
+
+const currentMousePos = ref({ x: 0, y: 0 })
+const showMouseIndicators = ref(true)
 
 watch(() => configKonva.value.textScale, (newScale) => {
   configDeleteButton.value.scaleX = newScale
@@ -71,7 +81,31 @@ onUnmounted(() => {
 })
 
 const handleKeyDown = (e: KeyboardEvent) => {
-  if (e.ctrlKey && e.key === 's') {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+    // Clone logic for Ctrl+C or Cmd+C
+    if (selectedCameraId.value) {
+      e.preventDefault()
+      handleCloneCamera(selectedCameraId.value)
+      return
+    }
+    if (selectedSlotAreaId.value) {
+      e.preventDefault()
+      handleCloneSlotArea(selectedSlotAreaId.value)
+      return
+    }
+    if (selectedGateId.value) {
+      e.preventDefault()
+      handleCloneGate(selectedGateId.value)
+      return
+    }
+    if (selectedRoadId.value) {
+      e.preventDefault()
+      handleCloneRoad(selectedRoadId.value)
+      return
+    }
+  }
+
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault()
     requestSave()
     return
@@ -112,8 +146,8 @@ const configRect = ref({
   y: 0,
   width: 0,
   height: 0,
-  fill: 'red',
-  opacity: 0.5,
+  fill: '#2c2c2c',
+  opacity: 1,
   visible: false,
   listening: false
 })
@@ -162,6 +196,12 @@ const saveToLocalStorage = () => {
         width: configRect.value.width,
         height: configRect.value.height
       },
+      configKonva: {
+        x: configKonva.value.x,
+        y: configKonva.value.y,
+        scaleX: configKonva.value.scaleX,
+        scaleY: configKonva.value.scaleY
+      },
       parkingParams: { ...parkingParams.value },
       slotParams: { ...slotParams.value },
       parkingSlotAreas: parkingSlotAreas.value.map(a => ({
@@ -186,6 +226,24 @@ const saveToLocalStorage = () => {
         x: c.x,
         y: c.y,
         corners: [...c.corners]
+      })),
+      gates: gates.value.map(g => ({
+        id: g.id,
+        side: g.side,
+        x: g.x,
+        y: g.y,
+        width: g.width,
+        type: g.type,
+        rotation: g.rotation || 0
+      })),
+      roads: (roads.value || []).map(r => ({
+        id: r.id,
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+        rotation: r.rotation,
+        name: r.name
       }))
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
@@ -208,11 +266,25 @@ const loadFromLocalStorage = () => {
     }
 
     if (data.configRect) {
-      configRect.value.x = Number(data.configRect.x) || 0
-      configRect.value.y = Number(data.configRect.y) || 0
+      configRect.value.x = Number(data.configRect.x) ?? 0
+      configRect.value.y = Number(data.configRect.y) ?? 0
       configRect.value.width = Number(data.configRect.width) || 0
       configRect.value.height = Number(data.configRect.height) || 0
       configRect.value.visible = !!data.isDrawn
+    }
+
+    if (data.configKonva) {
+      configKonva.value.x = Number(data.configKonva.x) ?? 280
+      configKonva.value.y = Number(data.configKonva.y) ?? 0
+      configKonva.value.scaleX = Number(data.configKonva.scaleX) || 1
+      configKonva.value.scaleY = Number(data.configKonva.scaleY) || 1
+      configKonva.value.textScale = 1 / (Number(data.configKonva.scaleX) || 1)
+    } else {
+      configKonva.value.x = 280
+      configKonva.value.y = 0
+      configKonva.value.scaleX = 1
+      configKonva.value.scaleY = 1
+      configKonva.value.textScale = 1
     }
 
     if (typeof data.isDrawn === 'boolean') {
@@ -263,10 +335,35 @@ const loadFromLocalStorage = () => {
       }))
     }
 
+    if (Array.isArray(data.gates)) {
+      gates.value = data.gates.map((g: any) => ({
+        id: g.id,
+        side: g.side || 'TOP',
+        x: Number(g.x) || 0,
+        y: Number(g.y) || 0,
+        width: Number(g.width) || 3,
+        type: g.type || 'ENTRANCE',
+        rotation: Number(g.rotation) || 0
+      }))
+    }
+
+    if (Array.isArray(data.roads)) {
+      roads.value = data.roads.map((r: any) => ({
+        id: r.id,
+        x: Number(r.x) || 0,
+        y: Number(r.y) || 0,
+        width: Number(r.width) || 15,
+        height: Number(r.height) || 4,
+        rotation: Number(r.rotation) || 0,
+        name: r.name || 'Yo\'lak'
+      }))
+    }
+
     // UI holatini tozalash
     selectedShapeName.value = ''
-    editingSlotAreaId.value = null
-    editingCameraId.value = null
+    selectedSlotAreaId.value = null
+    selectedCameraId.value = null
+    selectedGateId.value = null
   } catch (e) {
     console.warn('Yuklashda xatolik:', e)
   }
@@ -280,17 +377,149 @@ const slotParams = ref({
   angle: 0
 })
 
-const parkingSlotAreas = ref<any[]>([])
+const parkingSlotAreas = shallowRef<any[]>([])
 const selectedSlotAreaId = ref<string | null>(null)
-const editingSlotAreaId = ref<string | null>(null)
-const editPopupPos = ref({ x: 0, y: 0 })
+// editingSlotAreaId va editPopupPos olib tashlandi - endi PropertiesPanel sidebar ichida
 
-const editingSlotArea = computed(() => {
-  if (!editingSlotAreaId.value) return null
-  return parkingSlotAreas.value.find(a => a.id === editingSlotAreaId.value) || null
-})
+// Properties panel: selected component data
+const selectedCamera = computed(() =>
+  selectedCameraId.value ? cameras.value.find(c => c.id === selectedCameraId.value) || null : null
+)
+const selectedSlotArea = computed(() =>
+  selectedSlotAreaId.value ? parkingSlotAreas.value.find(a => a.id === selectedSlotAreaId.value) || null : null
+)
+const selectedGate = computed(() =>
+  selectedGateId.value ? gates.value.find(g => g.id === selectedGateId.value) || null : null
+)
+const selectedRoad = computed(() =>
+  roads.value.find(r => r.id === selectedRoadId.value) || null
+)
 
-const mode = ref<'PARKING' | 'SLOT_AREA' | 'CAMERA'>('PARKING')
+const handlePanelUpdateCamera = (data: any) => {
+  handleUpdateCameraBody(data)
+}
+
+const handlePanelUpdateSlotArea = (data: any) => {
+  const area = parkingSlotAreas.value.find(a => a.id === data.id)
+  if (!area) return
+  if (data.x !== undefined) area.config.x = data.x
+  if (data.y !== undefined) area.config.y = data.y
+  if (data.rotation !== undefined) area.config.rotation = data.rotation
+  if (data.slotCount !== undefined) area.slotCount = data.slotCount
+  if (data.slotWidth !== undefined) area.slotWidth = data.slotWidth
+  if (data.slotHeight !== undefined) area.slotHeight = data.slotHeight
+  if (data.slotAngle !== undefined) area.slotAngle = data.slotAngle
+  const sw = (area.slotWidth || 0) * (area.pixelsPerMeter || 50)
+  area.config.width = (area.slotCount || 0) * sw
+  area.config.height = (area.slotHeight || 0) * (area.pixelsPerMeter || 50)
+}
+
+const handlePanelUpdateGate = (data: any) => {
+  const gate = gates.value.find(g => g.id === data.id)
+  if (!gate) return
+  if (data.type !== undefined) gate.type = data.type
+  if (data.width !== undefined) gate.width = data.width
+  if (data.isOpen !== undefined) gate.isOpen = data.isOpen
+  if (data.rotation !== undefined) gate.rotation = data.rotation
+  if (data.x !== undefined) gate.x = data.x
+  if (data.y !== undefined) gate.y = data.y
+  if (data.side !== undefined && data.side !== gate.side) {
+    gate.side = data.side
+    switch (gate.side) {
+      case 'TOP':    gate.x = configRect.value.width / 2; gate.y = 0; break
+      case 'BOTTOM': gate.x = configRect.value.width / 2; gate.y = configRect.value.height; break
+      case 'LEFT':   gate.x = 0; gate.y = configRect.value.height / 2; break
+      case 'RIGHT':  gate.x = configRect.value.width; gate.y = configRect.value.height / 2; break
+    }
+  }
+}
+
+const mode = ref<'PARKING' | 'SLOT_AREA' | 'CAMERA' | 'GATE' | 'ROAD'>('PARKING')
+const hoverSlotArea = ref<any>(null)
+
+const handleSlotAreaHoverChange = (data: any) => {
+  if (data.isHovered) {
+    hoverSlotArea.value = data
+  } else if (hoverSlotArea.value?.id === data.id) {
+    hoverSlotArea.value = null
+  }
+}
+
+// --- Yo'lak (Road) state ---
+interface RoadData {
+  id: string
+  x: number
+  y: number
+  width: number  // meters
+  height: number // meters
+  rotation: number
+  name: string
+}
+
+const roads = shallowRef<RoadData[]>([])
+const selectedRoadId = ref<string | null>(null)
+
+const addRoad = () => {
+  if (isReadonly.value) return
+  if (!isDrawn.value) return
+  const id = `road-${Date.now()}`
+  const W = configRect.value.width
+  const H = configRect.value.height
+  const P = PIXELS_PER_METER
+  
+  // Create road at the center of the drawn area
+  const rWidth = 15
+  const rHeight = 4
+  
+  roads.value = [...roads.value, {
+    id,
+    x: configRect.value.x + (W / 2) - (rWidth * P / 2),
+    y: configRect.value.y + (H / 2) - (rHeight * P / 2),
+    width: rWidth,   // default 15m width for horizontal road
+    height: rHeight, // default 4m height
+    rotation: 0,
+    name: 'Yo\'lak'
+  }]
+  handleSelectRoad(id)
+}
+
+const handleDeleteRoad = (id: string) => {
+  roads.value = [...roads.value.filter(r => r.id !== id)]
+  if (selectedRoadId.value === id) selectedRoadId.value = null
+}
+
+const handleSelectRoad = (id: string) => {
+  selectedCameraId.value = null
+  selectedSlotAreaId.value = null
+  selectedGateId.value = null
+  selectedRoadId.value = id
+  sidebarTab.value = 'EDIT' // isReadonly dan qat'iy nazar EDIT tabiga o'tamiz
+}
+
+const handleUpdateRoad = (data: Partial<RoadData> & { id: string }) => {
+  const road = roads.value.find(r => r.id === data.id)
+  if (road) {
+    if (data.x !== undefined) road.x = data.x
+    if (data.y !== undefined) road.y = data.y
+    if (data.width !== undefined) road.width = data.width
+    if (data.height !== undefined) road.height = data.height
+    if (data.rotation !== undefined) road.rotation = data.rotation
+    if (data.name !== undefined) road.name = data.name
+  }
+}
+
+const handleCloneRoad = (id: string) => {
+  if (isReadonly.value) return
+  const road = roads.value.find(r => r.id === id)
+  if (road) {
+    const newRoad = JSON.parse(JSON.stringify(road))
+    newRoad.id = `road-${Date.now()}`
+    newRoad.x += PIXELS_PER_METER
+    newRoad.y += PIXELS_PER_METER
+    roads.value.push(newRoad)
+    selectedRoadId.value = newRoad.id
+  }
+}
 
 // --- Kamera state ---
 interface CameraData {
@@ -300,10 +529,102 @@ interface CameraData {
   corners: number[] // [x1,y1, x2,y2, x3,y3, x4,y4]
 }
 
-const cameras = ref<CameraData[]>([])
+const cameras = shallowRef<CameraData[]>([])
 const selectedCameraId = ref<string | null>(null)
+const editingCameraId = ref<string | null>(null)
+const isReadonly = ref(true)
+
+const toggleReadonly = () => {
+  // Avvalgi mantiq tanlovlarni o'chirib yuborar edi, endi buni olib tashlaymiz
+  // Chunki element tanlangan holda ham readonly ga o'tish mumkin bo'lishi kerak
+}
+
+// --- Eshik (Gate) state ---
+interface GateData {
+  id: string
+  side: 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT'
+  x: number
+  y: number
+  width: number  // meters
+  type: 'ENTRANCE' | 'EXIT' | 'BOTH'
+  isOpen?: boolean
+  rotation?: number
+}
+
+const gates = shallowRef<GateData[]>([])
+const selectedGateId = ref<string | null>(null)
+
+const gateParams = ref({
+  type: 'ENTRANCE' as 'ENTRANCE' | 'EXIT' | 'BOTH',
+  side: 'TOP' as 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT',
+  width: 3
+})
+
+const addGate = () => {
+  if (isReadonly.value) return
+  if (!isDrawn.value) return
+  const id = `gate-${Date.now()}`
+  const { side, type, width } = gateParams.value
+  const fullWidth = width * PIXELS_PER_METER
+  let x = 0, y = 0
+  switch (side) {
+    case 'TOP':    x = configRect.value.width / 2 - fullWidth / 2; y = 0; break
+    case 'BOTTOM': x = configRect.value.width / 2 - fullWidth / 2; y = configRect.value.height; break
+    case 'LEFT':   x = 0; y = configRect.value.height / 2 - fullWidth / 2; break
+    case 'RIGHT':  x = configRect.value.width; y = configRect.value.height / 2 - fullWidth / 2; break
+  }
+  if (side === 'TOP' || side === 'BOTTOM') {
+    x = Math.max(0, Math.min(configRect.value.width - fullWidth, x))
+  } else {
+    y = Math.max(0, Math.min(configRect.value.height - fullWidth, y))
+  }
+  gates.value.push({ id, side, x, y, width, type, isOpen: false, rotation: 0 })
+  handleSelectGate(id)
+}
+
+const handleDeleteGate = (id: string) => {
+  gates.value = [...gates.value.filter(g => g.id !== id)]
+  if (selectedGateId.value === id) selectedGateId.value = null
+}
+
+const handleSelectGate = (id: string) => {
+  selectedCameraId.value = null
+  selectedSlotAreaId.value = null
+  selectedRoadId.value = null
+  selectedGateId.value = id
+  sidebarTab.value = 'EDIT' // isReadonly dan qat'iy nazar EDIT tabiga o'tamiz
+}
+
+const handleCloneGate = (id: string) => {
+  if (isReadonly.value) return
+  const gate = gates.value.find(g => g.id === id)
+  if (gate) {
+    const newGate = JSON.parse(JSON.stringify(gate))
+    newGate.id = `gate-${Date.now()}`
+    // Gate tomoniga qarab biroz surish
+    if (newGate.side === 'TOP' || newGate.side === 'BOTTOM') {
+      newGate.x += PIXELS_PER_METER
+    } else {
+      newGate.y += PIXELS_PER_METER
+    }
+    gates.value.push(newGate)
+    selectedGateId.value = newGate.id
+  }
+}
+
+const handleUpdateGatePosition = (data: { id: string; x: number; y: number }) => {
+  const gate = gates.value.find(g => g.id === data.id)
+  if (gate) {
+    // Gate.vue provides coordinates relative to the same parent as configRect
+    // but the Gate component in template uses x + configRect.x
+    // so we store coordinates relative to ParkingArea (0..W, 0..H)
+    gate.x = data.x - configRect.value.x
+    gate.y = data.y - configRect.value.y
+  }
+}
 
 const addCamera = () => {
+  if (isReadonly.value) return
   if (!isDrawn.value) return
   const id = `camera-${Date.now()}`
   const W = configRect.value.width
@@ -317,48 +638,72 @@ const addCamera = () => {
   cameras.value.push({
     id, x: cx, y: cy,
     corners: [
-      clampX(cx + P * 1.5), clampY(cy - P * 1),   // yaqin-yuqori
-      clampX(cx + P * 1.5), clampY(cy + P * 1),   // yaqin-pastki
-      clampX(cx + P * 5),   clampY(cy + P * 3),   // uzoq-pastki
-      clampX(cx + P * 5),   clampY(cy - P * 3),   // uzoq-yuqori
+      clampX(cx + P * 4.5), clampY(cy - P * 1.5),   // yaqin-yuqori
+      clampX(cx + P * 4.5), clampY(cy + P * 1.5),   // yaqin-pastki
+      clampX(cx + P * 9),   clampY(cy + P * 3.5),   // uzoq-pastki
+      clampX(cx + P * 9),   clampY(cy - P * 3.5),   // uzoq-yuqori
     ]
   })
-  selectedCameraId.value = id
+  handleSelectCamera(id)
 }
 
 const handleDeleteCamera = (id: string) => {
-  cameras.value = cameras.value.filter(c => c.id !== id)
+  cameras.value = [...cameras.value.filter(c => c.id !== id)]
   if (selectedCameraId.value === id) selectedCameraId.value = null
 }
 
 const handleSelectCamera = (id: string) => {
+  // Readonly rejimida bo'lganda ham tanlash mumkin
+  selectedSlotAreaId.value = null
+  selectedGateId.value = null
+  selectedRoadId.value = null
   selectedCameraId.value = id
+  sidebarTab.value = 'EDIT' // Har doim EDIT tabiga o'tamiz
 }
 
 const handleUpdateCameraBody = (data: { id: string; x: number; y: number; corners?: number[] }) => {
   const cam = cameras.value.find(c => c.id === data.id)
   if (cam) {
-    cam.x = data.x
-    cam.y = data.y
-    if (data.corners) cam.corners = data.corners
+    cam.x = data.x - configRect.value.x
+    cam.y = data.y - configRect.value.y
+    if (data.corners) {
+      cam.corners = data.corners.map((v, i) => i % 2 === 0 ? v - configRect.value.x : v - configRect.value.y)
+    }
   }
 }
 
 const handleUpdateCameraCorner = (data: { id: string; index: number; x: number; y: number }) => {
   const cam = cameras.value.find(c => c.id === data.id)
   if (cam) {
-    cam.corners[data.index * 2] = data.x
-    cam.corners[data.index * 2 + 1] = data.y
+    cam.corners[data.index * 2] = data.x - configRect.value.x
+    cam.corners[data.index * 2 + 1] = data.y - configRect.value.y
+  }
+}
+
+const handleCloneCamera = (id: string) => {
+  if (isReadonly.value) return
+  const cam = cameras.value.find(c => c.id === id)
+  if (cam) {
+    const newCam = JSON.parse(JSON.stringify(cam))
+    newCam.id = `camera-${Date.now()}`
+    newCam.x += PIXELS_PER_METER
+    newCam.y += PIXELS_PER_METER
+    newCam.corners = newCam.corners.map((v: number) => v + PIXELS_PER_METER)
+    cameras.value.push(newCam)
+    selectedCameraId.value = newCam.id
   }
 }
 
 const addSlotArea = () => {
+  if (isReadonly.value) return
   if (!isDrawn.value) return
   
   const id = `slot-area-${Date.now()}`
   const sw = slotParams.value.width * PIXELS_PER_METER
   const sh = slotParams.value.height * PIXELS_PER_METER
-  const totalWidth = slotParams.value.count * sw
+  const angleRad = (slotParams.value.angle * Math.PI) / 180
+  const sOffset = sh * Math.tan(angleRad)
+  const totalWidth = slotParams.value.count * sw + Math.abs(sOffset)
 
   const newArea = {
     id,
@@ -367,7 +712,7 @@ const addSlotArea = () => {
       y: 50,
       width: totalWidth,
       height: sh,
-      rotation: slotParams.value.angle || 0,
+      rotation: 0,
       draggable: true,
       name: 'slotArea'
     },
@@ -379,17 +724,12 @@ const addSlotArea = () => {
   }
   
   parkingSlotAreas.value.push(newArea)
-  selectedSlotAreaId.value = id
-  
-  // Avtomatik ravishda tahrirlash oynasini ochish olib tashlandi
-  // editingSlotAreaId.value = id
-  
-  // Oynaning o'rtasiga yaqinroq joyda ochish
-  editPopupPos.value = { x: window.innerWidth / 2 - 100, y: 100 }
+  // Yangi SlotArea qo'shilganda avtomatik tanlab, sidebar'da ko'rsatamiz
+  handleEditSlotArea({ id, x: 50, y: 50 })
 }
 
 const handleDeleteSlotArea = (id: string) => {
-  parkingSlotAreas.value = parkingSlotAreas.value.filter(a => a.id !== id)
+  parkingSlotAreas.value = [...parkingSlotAreas.value.filter(a => a.id !== id)]
   if (selectedSlotAreaId.value === id) {
     selectedSlotAreaId.value = null
   }
@@ -400,6 +740,19 @@ const handleRotateSlotArea = (id: string) => {
   if (area) {
     area.config.rotation = (area.config.rotation + 90) % 360
     // area.slotAngle endi alohida, uni rotation bilan sinxronlamaymiz
+  }
+}
+
+const handleCloneSlotArea = (id: string) => {
+  if (isReadonly.value) return
+  const area = parkingSlotAreas.value.find(a => a.id === id)
+  if (area) {
+    const newArea = JSON.parse(JSON.stringify(area))
+    newArea.id = `slot-area-${Date.now()}`
+    newArea.config.x += PIXELS_PER_METER
+    newArea.config.y += PIXELS_PER_METER
+    parkingSlotAreas.value.push(newArea)
+    selectedSlotAreaId.value = newArea.id
   }
 }
 
@@ -418,35 +771,22 @@ const handleUpdateSlotAreaParams = (data: any) => {
     
     // Hisoblangan qiymatlarni yangilash (NaN dan himoyalangan)
     const sw = (area.slotWidth || 0) * (area.pixelsPerMeter || 50)
-    area.config.width = (area.slotCount || 0) * sw
-    area.config.height = (area.slotHeight || 0) * (area.pixelsPerMeter || 50)
+    const sh = (area.slotHeight || 0) * (area.pixelsPerMeter || 50)
+    const angleRad = ((area.slotAngle || 0) * Math.PI) / 180
+    const sOffset = sh * Math.tan(angleRad)
+    
+    area.config.width = (area.slotCount || 0) * sw + Math.abs(sOffset)
+    area.config.height = sh
   }
 }
 
 const handleEditSlotArea = (data: { id: string, x: number, y: number, screenX?: number, screenY?: number }) => {
-  editingSlotAreaId.value = data.id
-  if (data.screenX !== undefined && data.screenY !== undefined) {
-    // Popup oynaning o'lchamlarini hisobga olib, ekran chetidan chiqib ketmasligini ta'minlash
-    const popupWidth = 250
-    const popupHeight = 300
-    
-    let x = data.screenX + 20
-    let y = data.screenY - 50 // Tugmaning biroz yuqorisidan boshlash
-    
-    if (x + popupWidth > window.innerWidth) {
-      x = data.screenX - popupWidth - 20
-    }
-    
-    if (y + popupHeight > window.innerHeight) {
-      y = window.innerHeight - popupHeight - 20
-    }
-    
-    if (y < 0) y = 20
-    
-    editPopupPos.value = { x, y }
-  } else {
-    editPopupPos.value = { x: 250, y: 20 }
-  }
+  // Slot areani tanlaymiz - sidebar properties panelda ko'rsatiladi
+  selectedCameraId.value = null
+  selectedGateId.value = null
+  selectedRoadId.value = null
+  selectedSlotAreaId.value = data.id
+  sidebarTab.value = 'EDIT' // Har doim EDIT tabiga o'tamiz
 }
 
 // Parking elementlari uchun test ma'lumotlari
@@ -466,9 +806,11 @@ const resetDrawing = () => {
   configRect.value.width = 0
   configRect.value.height = 0
   parkingSlotAreas.value = []
-  editingSlotAreaId.value = null
+  selectedSlotAreaId.value = null
   cameras.value = []
   selectedCameraId.value = null
+  gates.value = []
+  selectedGateId.value = null
 }
 
 const updateDimensions = (rectNode: any) => {
@@ -508,8 +850,8 @@ const createParking = () => {
   const w = parkingParams.value.width * PIXELS_PER_METER
   const h = parkingParams.value.height * PIXELS_PER_METER
   
-  configRect.value.x = 50
-  configRect.value.y = 50
+  configRect.value.x = 0
+  configRect.value.y = 0
   configRect.value.width = w
   configRect.value.height = h
   configRect.value.visible = true
@@ -517,44 +859,55 @@ const createParking = () => {
   isDrawn.value = true
   selectedShapeName.value = 'mainRect'
 
-  configDeleteButton.value.x = 50 + w - 20
-  configDeleteButton.value.y = 70
-  configDeleteText.value.x = 50 + w - 30
-  configDeleteText.value.y = 60
+  configDeleteButton.value.x = w - 20
+  configDeleteButton.value.y = 20
+  configDeleteText.value.x = w - 30
+  configDeleteText.value.y = 10
 }
 
 const handleWheel = (e: any) => {
   e.evt.preventDefault()
 
-  if (e.evt.shiftKey) {
-    configKonva.value.x -= e.evt.deltaY
+  // Ctrl bosilganda — zoom
+  if (e.evt.ctrlKey) {
+    const scaleBy = 1.1
+    const stage = e.target.getStage()
+    const oldScale = stage.scaleX()
+    const pointer = stage.getPointerPosition()
+
+    if (!pointer) return
+
+    const mousePointTo = {
+      x: (pointer.x - stage.x()) / oldScale,
+      y: (pointer.y - stage.y()) / oldScale
+    }
+
+    const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy
+
+    configKonva.value.scaleX = newScale
+    configKonva.value.scaleY = newScale
+    configKonva.value.textScale = 1 / newScale
+
+    const newPos = {
+      x: pointer.x - mousePointTo.x * newScale,
+      y: pointer.y - mousePointTo.y * newScale
+    }
+    configKonva.value.x = newPos.x
+    configKonva.value.y = newPos.y
     return
   }
 
-  const scaleBy = 1.1
-  const stage = e.target.getStage()
-  const oldScale = stage.scaleX()
-  const pointer = stage.getPointerPosition()
-
-  if (!pointer) return
-
-  const mousePointTo = {
-    x: (pointer.x - stage.x()) / oldScale,
-    y: (pointer.y - stage.y()) / oldScale
+  // Odatda scroll — pan (shift: gorizontal, aks holda vertikal)
+  if (e.evt.shiftKey) {
+    configKonva.value.x -= e.evt.deltaY
+  } else {
+    // Zoom pivot point should exclude sidebar
+    const sidebarW = 280
+    if (e.evt.clientX < sidebarW) return // Do not pan if scrolling inside sidebar
+    
+    configKonva.value.x -= e.evt.deltaX
+    configKonva.value.y -= e.evt.deltaY
   }
-
-  const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy
-
-  configKonva.value.scaleX = newScale
-  configKonva.value.scaleY = newScale
-  configKonva.value.textScale = 1 / newScale
-
-  const newPos = {
-    x: pointer.x - mousePointTo.x * newScale,
-    y: pointer.y - mousePointTo.y * newScale
-  }
-  configKonva.value.x = newPos.x
-  configKonva.value.y = newPos.y
 }
 
 const handleStageDragMove = (e: any) => {
@@ -624,9 +977,15 @@ const handleMouseDown = (e: any) => {
       selectedCameraId.value = null
     }
 
+    // Gate dan boshqa joyga bosilsa — deaktiv
+    const isGateElement = targetName === 'gate'
+    if (!isGateElement) {
+      selectedGateId.value = null
+    }
+
     if (isStageClicked) {
       selectedShapeName.value = ''
-      editingSlotAreaId.value = null
+      selectedSlotAreaId.value = null
     } else {
       let node = e.target
       let name = node.name()
@@ -642,14 +1001,22 @@ const handleMouseDown = (e: any) => {
         selectedSlotAreaId.value = node.id()
       } else {
         selectedShapeName.value = ''
-        editingSlotAreaId.value = null
+        selectedSlotAreaId.value = null
       }
     }
   }
 }
 
-const handleMouseMove = () => {
-  // Mouse bilan chizish olib tashlandi
+const handleMouseMove = (e: any) => {
+  const stage = e.target.getStage ? e.target.getStage() : e.target
+  if (!stage) return
+  const mousePos = stage.getPointerPosition()
+  if (mousePos) {
+    currentMousePos.value = {
+      x: mousePos.x,
+      y: mousePos.y
+    }
+  }
 }
 
 const handleMouseUp = (e: any) => {
@@ -672,14 +1039,7 @@ const handleTransform = (e: any) => {
 
 const handleDragMove = (e: any) => {
   updateDimensions(e.target)
-}
-
-const handleMouseEnter = () => {
-  // Parking mouse eventlari olib tashlandi
-}
-
-const handleMouseLeave = () => {
-  // Parking mouse eventlari olib tashlandi
+  handleMouseMove(e)
 }
 
 const zoomPercent = computed(() => Math.round(configKonva.value.scaleX * 100))
@@ -687,7 +1047,8 @@ const zoomPercent = computed(() => Math.round(configKonva.value.scaleX * 100))
 const zoomBy = (factor: number) => {
   const oldScale = configKonva.value.scaleX
   const newScale = oldScale * factor
-  const cx = configKonva.value.width / 2
+  const sidebarW = 280
+  const cx = sidebarW + (configKonva.value.width - sidebarW) / 2
   const cy = configKonva.value.height / 2
   const pointTo = {
     x: (cx - configKonva.value.x) / oldScale,
@@ -704,47 +1065,207 @@ const resetZoom = () => {
   configKonva.value.scaleX = 1
   configKonva.value.scaleY = 1
   configKonva.value.textScale = 1
-  configKonva.value.x = 0
+  configKonva.value.x = 280 // Sidebar width
   configKonva.value.y = 0
 }
+
+const sidebarTab = ref('EDIT')
 </script>
 
 <template>
-  <div class="controls">
-    <div class="mode-selector">
-      <button :class="{ active: mode === 'PARKING' }" @click="mode = 'PARKING'">Parking</button>
-      <button :class="{ active: mode === 'SLOT_AREA' }" @click="mode = 'SLOT_AREA'" :disabled="!isDrawn">Slot Area</button>
-      <button :class="{ active: mode === 'CAMERA' }" @click="mode = 'CAMERA'" :disabled="!isDrawn">Kamera</button>
+  <!-- Chap sidebar - barcha boshqaruvlar -->
+  <div class="left-sidebar">
+    <!-- Main sidebar tabs -->
+    <div class="sidebar-tabs">
+      <button :class="{ active: sidebarTab === 'ADD' }" @click="sidebarTab = 'ADD'" class="sidebar-tab-btn">
+        <span class="tab-icon-small">➕</span>
+      </button>
+      <button :class="{ active: sidebarTab === 'EDIT' }" @click="sidebarTab = 'EDIT'" class="sidebar-tab-btn">
+        <span class="tab-icon-small">⚙️</span>
+      </button>
+      <button :class="{ active: sidebarTab === 'SAVE' }" @click="sidebarTab = 'SAVE'" class="sidebar-tab-btn">
+        <span class="tab-icon-small">💾</span>
+      </button>
+      <button :class="{ active: sidebarTab === 'SETTINGS' }" @click="sidebarTab = 'SETTINGS'" class="sidebar-tab-btn">
+        <span class="tab-icon-small">⚙️</span>
+      </button>
     </div>
-    <div v-if="mode === 'PARKING'" class="params">
-      <label>Width (m): <input type="number" v-model.number="parkingParams.width" step="0.1" @input="updateParkingDimensions" /></label>
-      <label>Height (m): <input type="number" v-model.number="parkingParams.height" step="0.1" @input="updateParkingDimensions" /></label>
-      <button v-if="!isDrawn" @click="createParking" class="draw-btn">Chizish</button>
-    </div>
-    <div v-if="mode === 'SLOT_AREA'" class="params">
-      <label>Slot soni: <input type="number" v-model.number="slotParams.count" /></label>
-      <label>Width (m): <input type="number" v-model.number="slotParams.width" step="0.1" /></label>
-      <label>Height (m): <input type="number" v-model.number="slotParams.height" step="0.1" /></label>
-      <label>Angle (°): <input type="number" v-model.number="slotParams.angle" /></label>
-      <button @click="addSlotArea" class="draw-btn">Qo'shish</button>
-    </div>
-    <div v-if="mode === 'CAMERA'" class="params">
-      <button @click="addCamera" class="draw-btn camera-btn">+ Kamera qo'shish</button>
-      <span v-if="cameras.length > 0" class="cam-count">{{ cameras.length }} ta kamera</span>
-      <p v-if="cameras.length > 0" class="hint">Kamera ustiga bosib aktiv qiling</p>
-    </div>
-  </div>
 
-  <!-- O'ng yuqori burchak: saqlash tugmasi -->
-  <div class="top-right-controls">
-    <button class="save-btn" @click="requestSave" title="Saqlash (Ctrl+S)">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-        <polyline points="17 21 17 13 7 13 7 21"/>
-        <polyline points="7 3 7 8 15 8"/>
-      </svg>
-      Saqlash
-    </button>
+    <div v-show="sidebarTab === 'ADD'" class="tab-pane">
+      <!-- Mode selector tabs -->
+      <div class="mode-tabs">
+        <button :class="{ active: mode === 'PARKING' }" @click="mode = 'PARKING'" :disabled="isReadonly" class="mode-tab">
+          <span class="tab-icon">🅿️</span>
+        </button>
+        <button :class="{ active: mode === 'SLOT_AREA' }" @click="mode = 'SLOT_AREA'" :disabled="!isDrawn || isReadonly" class="mode-tab">
+          <span class="tab-icon">🚗</span>
+        </button>
+        <button :class="{ active: mode === 'CAMERA' }" @click="mode = 'CAMERA'" :disabled="!isDrawn || isReadonly" class="mode-tab">
+          <span class="tab-icon">📹</span>
+        </button>
+        <button :class="{ active: mode === 'GATE' }" @click="mode = 'GATE'" :disabled="!isDrawn || isReadonly" class="mode-tab">
+          <span class="tab-icon">🚪</span>
+        </button>
+        <button :class="{ active: mode === 'ROAD' }" @click="mode = 'ROAD'" :disabled="!isDrawn || isReadonly" class="mode-tab">
+          <span class="tab-icon">🛣️</span>
+        </button>
+      </div>
+
+      <!-- Qo'shish formlari -->
+      <div class="sidebar-content">
+        <div v-show="mode === 'PARKING'" class="form-section">
+          <h3 class="section-title">Parking maydon</h3>
+          <label class="form-label">
+            <span>Kenglik (m)</span>
+            <input type="number" v-model.number="parkingParams.width" :disabled="isReadonly" step="0.1" @input="updateParkingDimensions" class="form-input" />
+          </label>
+          <label class="form-label">
+            <span>Uzunlik (m)</span>
+            <input type="number" v-model.number="parkingParams.height" :disabled="isReadonly" step="0.1" @input="updateParkingDimensions" class="form-input" />
+          </label>
+          <button v-if="!isDrawn" @click="createParking" :disabled="isReadonly" class="action-btn-primary">Chizish</button>
+        </div>
+
+        <div v-show="mode === 'SLOT_AREA'" class="form-section">
+          <h3 class="section-title">Yangi slot maydon</h3>
+          <label class="form-label">
+            <span>Slot soni</span>
+            <input type="number" v-model.number="slotParams.count" :disabled="isReadonly" class="form-input" />
+          </label>
+          <label class="form-label">
+            <span>Kenglik (m)</span>
+            <input type="number" v-model.number="slotParams.width" :disabled="isReadonly" step="0.1" class="form-input" />
+          </label>
+          <label class="form-label">
+            <span>Uzunlik (m)</span>
+            <input type="number" v-model.number="slotParams.height" :disabled="isReadonly" step="0.1" class="form-input" />
+          </label>
+          <label class="form-label">
+            <span>Burchak (°)</span>
+            <input type="number" v-model.number="slotParams.angle" :disabled="isReadonly" class="form-input" />
+          </label>
+          <button @click="addSlotArea" :disabled="isReadonly" class="action-btn-primary">+ Qo'shish</button>
+        </div>
+
+        <div v-show="mode === 'CAMERA'" class="form-section">
+          <h3 class="section-title">Kameralar</h3>
+          <button @click="addCamera" :disabled="isReadonly" class="action-btn-primary">+ Kamera qo'shish</button>
+          <div v-if="cameras.length > 0" class="info-text">
+            <span class="count-badge">{{ cameras.length }} ta</span>
+            <p class="hint-text">Kamera ustiga bosib aktiv qiling</p>
+          </div>
+        </div>
+
+        <div v-show="mode === 'GATE'" class="form-section">
+          <h3 class="section-title">Yangi eshik</h3>
+          <label class="form-label">
+            <span>Turi</span>
+            <select v-model="gateParams.type" :disabled="isReadonly" class="form-select">
+              <option value="ENTRANCE">Kirish</option>
+              <option value="EXIT">Chiqish</option>
+              <option value="BOTH">Kirish/Chiqish</option>
+            </select>
+          </label>
+          <label class="form-label">
+            <span>Tomon</span>
+            <select v-model="gateParams.side" :disabled="isReadonly" class="form-select">
+              <option value="TOP">Yuqori</option>
+              <option value="BOTTOM">Pastki</option>
+              <option value="LEFT">Chap</option>
+              <option value="RIGHT">O'ng</option>
+            </select>
+          </label>
+          <label class="form-label">
+            <span>Kenglik (m)</span>
+            <input type="number" v-model.number="gateParams.width" :disabled="isReadonly" step="0.5" min="1" class="form-input" />
+          </label>
+          <button @click="addGate" :disabled="isReadonly" class="action-btn-primary">+ Eshik qo'shish</button>
+          <div v-if="gates.length > 0" class="info-text">
+            <span class="count-badge">{{ gates.length }} ta</span>
+          </div>
+        </div>
+
+        <div v-show="mode === 'ROAD'" class="form-section">
+          <h3 class="section-title">Yo'lakchalar</h3>
+          <p class="section-desc">Mashinalar harakatlanishi uchun yo'l chizig'i</p>
+          <button @click="addRoad" :disabled="isReadonly" class="action-btn-primary">+ Yo'lak qo'shish</button>
+          <div v-if="roads.length > 0" class="info-text">
+            <span class="count-badge">{{ roads.length }} ta</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-show="sidebarTab === 'EDIT'" class="tab-pane">
+      <!-- Properties Panel - har doim render qilinadi, lekin v-show bilan ko'rsatiladi -->
+      <div v-show="selectedCamera || selectedSlotArea || selectedGate || selectedRoad" class="properties-section">
+        <PropertiesPanel
+          :camera="selectedCamera"
+          :slotArea="selectedSlotArea"
+          :gate="selectedGate"
+          :road="selectedRoad"
+          :pixelsPerMeter="PIXELS_PER_METER"
+          :isReadonly="isReadonly"
+          @update-camera="handlePanelUpdateCamera"
+          @update-slot-area="handlePanelUpdateSlotArea"
+          @update-gate="handlePanelUpdateGate"
+          @update-road="handleUpdateRoad"
+          @delete-camera="handleDeleteCamera"
+          @delete-slot-area="handleDeleteSlotArea"
+          @delete-gate="handleDeleteGate"
+          @delete-road="handleDeleteRoad"
+          @rotate-slot-area="handleRotateSlotArea"
+          @clone-camera="handleCloneCamera"
+          @clone-slot-area="handleCloneSlotArea"
+          @clone-gate="handleCloneGate"
+          @clone-road="handleCloneRoad"
+        />
+      </div>
+      <div v-show="!(selectedCamera || selectedSlotArea || selectedGate || selectedRoad)" class="empty-state">
+        <p>Tahrirlash uchun elementni tanlang</p>
+      </div>
+    </div>
+
+    <div v-show="sidebarTab === 'SAVE'" class="tab-pane">
+      <!-- Saqlash tugmasi -->
+      <div class="save-section">
+        <h3 class="section-title">Saqlash</h3>
+        <p class="hint-text">Barcha o'zgarishlarni tizimga saqlash uchun quyidagi tugmani bosing.</p>
+        <button class="save-btn-sidebar" @click="requestSave" title="Saqlash (Ctrl+S)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+            <polyline points="17 21 17 13 7 13 7 21"/>
+            <polyline points="7 3 7 8 15 8"/>
+          </svg>
+          <span>Saqlash</span>
+        </button>
+      </div>
+    </div>
+
+    <div v-show="sidebarTab === 'SETTINGS'" class="tab-pane">
+      <!-- Sozlamalar -->
+      <div class="settings-section">
+        <h3 class="section-title">Sozlamalar</h3>
+        
+        <div class="settings-item">
+          <label class="toggle-container">
+            <input type="checkbox" v-model="showMouseIndicators">
+            <span class="toggle-slider"></span>
+            <span class="toggle-label">Sichqoncha ko'rsatkichi</span>
+          </label>
+          <p class="hint-text">Chizg'ichda sichqoncha koordinatalarini ko'rsatish.</p>
+        </div>
+
+        <div class="settings-item">
+          <label class="toggle-container">
+            <input type="checkbox" v-model="isReadonly" @change="toggleReadonly">
+            <span class="toggle-slider"></span>
+            <span class="toggle-label">Faqat o'qish rejimi</span>
+          </label>
+          <p class="hint-text">Yoqilganda barcha elementlar bloklanadi, faqat kameralarni ko'rish mumkin.</p>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Saqlash tasdiqlash dialogi -->
@@ -766,6 +1287,26 @@ const resetZoom = () => {
     <button class="zoom-btn" @click="zoomBy(1.2)" title="Kattalashtirish">+</button>
   </div>
   <div class="container" ref="containerRef">
+    <Ruler 
+      type="horizontal" 
+      :offset="configKonva.x - 280" 
+      :scale="configKonva.scaleX" 
+      :pixelsPerMeter="PIXELS_PER_METER" 
+      :viewSize="configKonva.width - 280"
+      :leftOffset="280"
+      :mousePos="currentMousePos.x"
+      :showIndicator="showMouseIndicators"
+    />
+    <Ruler 
+      type="vertical" 
+      :offset="configKonva.y - 25" 
+      :scale="configKonva.scaleY" 
+      :pixelsPerMeter="PIXELS_PER_METER" 
+      :viewSize="configKonva.height - 25"
+      :leftOffset="280"
+      :mousePos="currentMousePos.y"
+      :showIndicator="showMouseIndicators"
+    />
     <v-stage 
       :config="configKonva"
       @mousedown="handleMouseDown"
@@ -774,7 +1315,7 @@ const resetZoom = () => {
       @wheel="handleWheel"
       @dragmove="handleStageDragMove"
       @dragend="handleStageDragEnd"
-      draggable
+      :draggable="!isReadonly"
     >
       <v-layer>
         <!-- Fon to'rtburchagi - stage surish uchun -->
@@ -783,10 +1324,11 @@ const resetZoom = () => {
           height: 100000,
           x: -50000,
           y: -50000,
-          fill: '#f0f0f0',
+          fill: '#c8d4e0',
           listening: true,
           name: 'background'
         }" />
+
         <ParkingArea
           :config="configRect"
           :slots="parkingSlots"
@@ -794,40 +1336,128 @@ const resetZoom = () => {
           :slotAreas="parkingSlotAreas"
           :cameras="cameras"
           :selectedCameraId="selectedCameraId"
+          :isReadonly="isReadonly"
+          :gates="gates"
+          :selectedGateId="selectedGateId"
           :isDrawn="isDrawn"
           :pixelsPerMeter="PIXELS_PER_METER"
           :textScale="configKonva.textScale"
-          @mouseenter="handleMouseEnter"
-          @mouseleave="handleMouseLeave"
+          @dragmove="handleMouseMove"
           @delete-slot-area="handleDeleteSlotArea"
           @rotate-slot-area="handleRotateSlotArea"
           @edit-slot-area="handleEditSlotArea"
           @update-slot-area-position="handleUpdateSlotAreaParams"
-          @delete-camera="handleDeleteCamera"
-          @select-camera="handleSelectCamera"
-          @update-camera-body="handleUpdateCameraBody"
-          @update-camera-corner="handleUpdateCameraCorner"
+          @dragmove-slot-area="handleMouseMove"
+          @slot-area-hover-change="handleSlotAreaHoverChange"
         />
+
+        <!-- Yo'laklar -->
+        <RoadArea
+          v-for="road in roads"
+          :key="road.id"
+          :id="road.id"
+          :x="road.x"
+          :y="road.y"
+          :width="road.width"
+          :height="road.height"
+          :rotation="road.rotation"
+          :name="road.name"
+          :pixelsPerMeter="PIXELS_PER_METER"
+          :textScale="configKonva.textScale"
+          :isSelected="road.id === selectedRoadId"
+          :isReadonly="isReadonly"
+          @select="handleSelectRoad"
+          @update-position="handleUpdateRoad"
+          @dragmove="handleMouseMove"
+        />
+
+        <!-- Kameralar (Yo'laklar ustida ko'rinishi uchun keyinroq chiziladi) -->
+        <Camera
+          v-for="cam in cameras"
+          :key="cam.id"
+          :id="cam.id"
+          :x="cam.x + configRect.x"
+          :y="cam.y + configRect.y"
+          :corners="cam.corners.map((v, i) => i % 2 === 0 ? v + configRect.x : v + configRect.y)"
+          :textScale="configKonva.textScale"
+          :parkingWidth="configRect.width"
+          :parkingHeight="configRect.height"
+          :pixelsPerMeter="PIXELS_PER_METER"
+          :isSelected="cam.id === selectedCameraId"
+          :isReadonly="isReadonly"
+          @delete="handleDeleteCamera"
+          @select="handleSelectCamera"
+          @update-body="handleUpdateCameraBody"
+          @update-corner="handleUpdateCameraCorner"
+          @dragmove="handleMouseMove"
+        />
+
+        <!-- Slot Area Tooltip (Barcha elementlar, jumladan yo'laklar ustida bo'lishi uchun) -->
+        <v-group 
+          v-if="hoverSlotArea" 
+          :config="{ 
+            x: hoverSlotArea.x + configRect.x, 
+            y: hoverSlotArea.y + configRect.y,
+            rotation: hoverSlotArea.rotation,
+            listening: false 
+          }"
+        >
+          <v-group :config="{ x: hoverSlotArea.width / 2, y: -25 / configKonva.textScale, listening: false }">
+            <v-label :config="{ scaleX: configKonva.textScale, scaleY: configKonva.textScale, offsetX: 0, offsetY: 0, listening: false }">
+              <v-tag :config="{
+                fill: 'rgba(0,0,0,0.8)',
+                cornerRadius: 4,
+                stroke: '#00bfff',
+                strokeWidth: 1 / configKonva.textScale,
+                pointerDirection: 'down',
+                pointerWidth: 10,
+                pointerHeight: 6,
+                lineJoin: 'round',
+                shadowColor: 'black',
+                shadowBlur: 10,
+                shadowOpacity: 0.5
+              }" />
+              <v-text :config="{
+                text: `${hoverSlotArea.slotCount} slots | W: ${(hoverSlotArea.width / hoverSlotArea.pixelsPerMeter).toFixed(2)}m | H: ${(hoverSlotArea.height / hoverSlotArea.pixelsPerMeter).toFixed(2)}m\nX: ${(hoverSlotArea.x / hoverSlotArea.pixelsPerMeter).toFixed(2)}m, Y: ${(hoverSlotArea.y / hoverSlotArea.pixelsPerMeter).toFixed(2)}m`,
+                fontSize: 12,
+                fill: '#ffffff',
+                padding: 6,
+                listening: false
+              }" />
+            </v-label>
+          </v-group>
+        </v-group>
+
+        <!-- Eshiklar (Barcha elementlardan yuqorida bo'lishi uchun oxirida chiziladi) -->
+    <Gate
+      v-for="gate in gates"
+      :key="gate.id"
+      :id="gate.id"
+      :side="gate.side"
+      :x="gate.x + configRect.x"
+      :y="gate.y + configRect.y"
+      :width="gate.width"
+      :type="gate.type"
+      :isOpen="gate.isOpen"
+      :rotation="gate.rotation"
+      :textScale="configKonva.textScale"
+      :parkingX="configRect.x"
+      :parkingY="configRect.y"
+      :parkingWidth="configRect.width"
+      :parkingHeight="configRect.height"
+      :pixelsPerMeter="PIXELS_PER_METER"
+      :isSelected="gate.id === selectedGateId"
+      :isReadonly="isReadonly"
+      @delete="handleDeleteGate"
+      @select="handleSelectGate"
+      @update-position="handleUpdateGatePosition"
+      @update-gate="handlePanelUpdateGate"
+      @dragmove="handleMouseMove"
+    />
+
 
       </v-layer>
     </v-stage>
-    <SlotEdit
-      v-if="editingSlotArea"
-      :id="editingSlotArea.id"
-      :x="editingSlotArea.config.x"
-      :y="editingSlotArea.config.y"
-      :slotCount="editingSlotArea.slotCount"
-      :slotWidth="editingSlotArea.slotWidth"
-      :slotHeight="editingSlotArea.slotHeight"
-      :slotAngle="editingSlotArea.slotAngle"
-      :pixelsPerMeter="PIXELS_PER_METER"
-      :visible="!!editingSlotAreaId"
-      :screenX="editPopupPos.x"
-      :screenY="editPopupPos.y"
-      @update-params="handleUpdateSlotAreaParams"
-      @close="editingSlotAreaId = null"
-      @mousedown.stop
-    />
   </div>
 </template>
 
@@ -839,93 +1469,419 @@ body {
   justify-content: center;
   align-items: center;
   height: 100vh;
-  background-color: #f0f0f0;
+  background-color: #c8d4e0;
 }
 
 .container {
+  position: relative;
   width: 100vw;
   height: 100vh;
-  background-color: white;
+  background-color: #c8d4e0;
+  overflow: hidden;
 }
 
-.controls {
+/* ═══ LEFT SIDEBAR ═══ */
+.left-sidebar {
   position: fixed;
-  top: 20px;
-  left: 20px;
+  top: 0;
+  left: 0;
+  width: 280px;
+  height: 100vh;
+  background: #1a1a1a;
+  border-right: 1px solid #333;
+  box-shadow: 2px 0 12px rgba(0,0,0,0.5);
   z-index: 100;
-  background: white;
-  color: #333;
-  padding: 15px;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-.mode-selector {
+.sidebar-tabs {
   display: flex;
-  gap: 5px;
+  background: #252525;
+  border-bottom: 1px solid #333;
+  overflow-x: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
 }
 
-.mode-selector button {
-  padding: 8px 12px;
+.sidebar-tabs::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+.sidebar-tab-btn {
+  flex: 1;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #888;
+  font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
-  border: 1px solid #ccc;
-  background: #f9f9f9;
-  color: #333;
+  transition: all 0.2s;
+  white-space: nowrap;
 }
 
-.mode-selector button.active {
-  background: #4caf50;
-  color: white;
-  border-color: #4caf50;
+.sidebar-tab-btn:hover {
+  background: rgba(255,255,255,0.05);
+  color: #bbb;
 }
 
-.params {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+.sidebar-tab-btn.active {
+  color: #f5c518;
+  border-bottom-color: #f5c518;
+  background: rgba(245, 197, 24, 0.05);
+}
+
+.sidebar-tab-btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.sidebar-tab-btn.disabled:hover {
+  background: transparent;
+  color: #888;
+}
+
+.tab-icon-small {
   font-size: 14px;
 }
 
-.params label {
+.tab-pane {
+  flex: 1;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+}
+
+.empty-state {
+  padding: 40px 20px;
+  text-align: center;
+  color: #666;
+  font-style: italic;
+  font-size: 13px;
+}
+
+.left-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+.left-sidebar::-webkit-scrollbar-track {
+  background: #111;
+}
+.left-sidebar::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 3px;
+}
+
+/* Mode Tabs */
+.mode-tabs {
+  display: flex;
+  gap: 0;
+  padding: 12px;
+  background: #212121;
+  border-bottom: 1px solid #333;
+}
+
+.mode-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
+  padding: 10px 6px;
+  cursor: pointer;
+  border: 1px solid #333;
+  background: #2a2a2a;
+  color: #888;
+  font-size: 11px;
+  font-weight: 600;
+  transition: all 0.2s;
 }
 
-.params input {
-  width: 60px;
+.mode-tab:not(:first-child) {
+  border-left: none;
 }
 
-.draw-btn {
-  margin-top: 10px;
-  padding: 8px;
-  background: #2196f3;
+.mode-tab:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.mode-tab:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.mode-tab.active {
+  background: #f5c518;
+  color: #111;
+  border-color: #f5c518;
+}
+
+.mode-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.tab-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.tab-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Save Section */
+.save-section {
+  padding: 16px;
+  background: #1e1e1e;
+  height: 100%;
+}
+
+.save-btn-sidebar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
   color: white;
   border: none;
+  border-radius: 6px;
   cursor: pointer;
-  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
 }
 
-.draw-btn:hover {
-  background: #1976d2;
+.save-btn-sidebar:hover {
+  background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.5);
+  transform: translateY(-1px);
+}
+
+.save-btn-sidebar:active {
+  transform: translateY(0);
+}
+
+/* Settings Section */
+.settings-section {
+  padding: 16px;
+  background: #1e1e1e;
+  height: 100%;
+}
+
+.settings-item {
+  margin-bottom: 20px;
+}
+
+.toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8e8e8;
+}
+
+/* Custom Checkbox Toggle */
+.toggle-slider {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background-color: #333;
+  border-radius: 20px;
+  transition: .3s;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  border-radius: 50%;
+  transition: .3s;
+}
+
+input:checked + .toggle-slider {
+  background-color: #4caf50;
+}
+
+input:checked + .toggle-slider:before {
+  transform: translateX(16px);
+}
+
+.toggle-container input {
+  display: none;
+}
+
+/* Sidebar Content (Forms) */
+.sidebar-content {
+  flex: 1;
+  padding: 16px;
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f5c518;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin: 0 0 8px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #2e2e2e;
+}
+
+.form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #999;
+}
+
+.form-label span {
+  font-weight: 600;
+  color: #aaa;
+}
+
+.form-input, .form-select {
+  width: 100%;
+  padding: 8px 10px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  color: #e8e8e8;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.form-input:focus, .form-select:focus {
+  outline: none;
+  border-color: #f5c518;
+  background: #2f2f2f;
+}
+
+.action-btn-primary {
+  width: 100%;
+  padding: 10px 16px;
+  background: #f5c518;
+  color: #111;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+  transition: all 0.2s;
+  margin-top: 4px;
+}
+
+.action-btn-primary:hover {
+  background: #ffd84d;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(245, 197, 24, 0.3);
+}
+
+.action-btn-primary:active {
+  transform: translateY(0);
+}
+
+.info-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: #222;
+  border-radius: 5px;
+  border: 1px solid #333;
+}
+
+.count-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  background: #2a2a2a;
+  color: #f5c518;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.hint-text {
+  margin: 0;
+  font-size: 11px;
+  color: #777;
+  font-style: italic;
+}
+
+/* Properties Section */
+.properties-section {
+  padding: 0;
+}
+
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #444, transparent);
+  margin: 8px 0;
 }
 
 .camera-btn {
-  background: #1565c0;
+  background: #00bfff;
+  color: #111;
 }
 
 .camera-btn:hover {
-  background: #0d47a1;
+  background: #33ccff;
+}
+
+.gate-btn {
+  background: #4caf50;
+  color: #111;
+}
+
+.gate-btn:hover {
+  background: #66bb6a;
+}
+
+.gate-select {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: #e0e0e0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .hint {
   margin: 0;
-  font-size: 12px;
-  color: #555;
+  font-size: 11px;
+  color: #666;
   font-style: italic;
 }
 
@@ -937,7 +1893,7 @@ body {
 .cancel-btn {
   margin-top: 4px;
   padding: 6px 10px;
-  background: #f44336;
+  background: #c0392b;
   color: white;
   border: none;
   cursor: pointer;
@@ -946,7 +1902,7 @@ body {
 }
 
 .cancel-btn:hover {
-  background: #d32f2f;
+  background: #e74c3c;
 }
 
 .zoom-controls {
@@ -957,9 +1913,10 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
-  background: white;
+  background: #1a1a1a;
+  border: 1px solid #333;
   border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
   padding: 4px;
 }
 
@@ -972,14 +1929,15 @@ body {
   line-height: 1;
   cursor: pointer;
   border-radius: 6px;
-  color: #333;
+  color: #ccc;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .zoom-btn:hover {
-  background: #f0f0f0;
+  background: #2a2a2a;
+  color: #fff;
 }
 
 .zoom-level {
@@ -991,11 +1949,11 @@ body {
   font-weight: 600;
   cursor: pointer;
   border-radius: 6px;
-  color: #333;
+  color: #f5c518;
 }
 
 .zoom-level:hover {
-  background: #f0f0f0;
+  background: #2a2a2a;
 }
 
 .top-right-controls {
@@ -1010,24 +1968,25 @@ body {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: #2196f3;
-  color: white;
-  border: none;
+  background: #1a1a1a;
+  color: #f5c518;
+  border: 1px solid #f5c518;
   border-radius: 8px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(33,150,243,0.3);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
 }
 
 .save-btn:hover {
-  background: #1976d2;
+  background: #f5c518;
+  color: #111;
 }
 
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.6);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -1035,10 +1994,11 @@ body {
 }
 
 .modal {
-  background: white;
+  background: #1a1a1a;
+  border: 1px solid #333;
   border-radius: 8px;
   padding: 24px 28px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
   min-width: 240px;
   text-align: center;
 }
@@ -1046,7 +2006,7 @@ body {
 .modal p {
   margin: 0 0 20px;
   font-size: 15px;
-  color: #333;
+  color: #ccc;
 }
 
 .modal-actions {
@@ -1064,21 +2024,23 @@ body {
 }
 
 .modal-btn--cancel {
-  background: #f0f0f0;
-  color: #333;
+  background: #2a2a2a;
+  color: #aaa;
+  border: 1px solid #444;
 }
 
 .modal-btn--cancel:hover {
-  background: #e0e0e0;
+  background: #333;
 }
 
 .modal-btn--confirm {
-  background: #2196f3;
-  color: white;
+  background: #f5c518;
+  color: #111;
+  font-weight: 700;
 }
 
 .modal-btn--confirm:hover {
-  background: #1976d2;
+  background: #ffd84d;
 }
 
 .save-toast {
@@ -1086,12 +2048,13 @@ body {
   bottom: 72px;
   right: 24px;
   z-index: 300;
-  background: #323232;
-  color: white;
+  background: #1a1a1a;
+  border: 1px solid #f5c518;
+  color: #f5c518;
   font-size: 13px;
   padding: 8px 16px;
   border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
   pointer-events: none;
 }
 </style>

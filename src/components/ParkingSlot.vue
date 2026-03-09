@@ -28,10 +28,10 @@ const emit = defineEmits<{
 
 const slotConfig = computed(() => ({
   ...props.config,
-  stroke: props.isSelected ? 'blue' : (props.config.stroke || 'black'),
-  strokeWidth: props.isSelected ? 2 : (props.config.strokeWidth || 1),
-  fill: props.config.fill || '#e0e0e0',
-  opacity: props.config.opacity || 0.8,
+  stroke: props.isSelected ? '#00bfff' : (props.config.stroke || '#ffffff'),
+  strokeWidth: props.isSelected ? 3 : (props.config.strokeWidth || 2),
+  fill: props.config.fill || 'transparent',
+  opacity: props.config.opacity || 1,
   closed: props.config.points ? true : undefined
 }))
 
@@ -68,16 +68,14 @@ const handleMouseEnter = () => {
     >
       <v-text :config="{
         x: 0, y: 0,
-        width: 30, height: 20,
-        offsetX: 15, offsetY: 10,
+        width: 40, height: 30,
+        offsetX: 20, offsetY: 15,
         text: String(index),
         align: 'center',
         verticalAlign: 'middle',
-        fontSize: 13,
-        fill: '#333',
+        fontSize: 22,
+        fill: '#ffffff',
         fontStyle: 'bold',
-        scaleX: textScale || 1,
-        scaleY: textScale || 1,
         listening: false
       }" />
     </v-group>

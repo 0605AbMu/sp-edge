@@ -1,0 +1,265 @@
+diff --git a/src/App.vue b/src/App.vue
+index 58aec6d..ab4fd67 100644
+--- a/src/App.vue
++++ b/src/App.vue
+@@ -180,6 +180,12 @@ const saveToLocalStorage = () => {
+         slotAngle: a.slotAngle,
+         pixelsPerMeter: a.pixelsPerMeter || PIXELS_PER_METER,
+         id: a.id
++      })),
++      cameras: cameras.value.map(c => ({
++        id: c.id,
++        x: c.x,
++        y: c.y,
++        corners: [...c.corners]
+       }))
+     }
+     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+@@ -248,9 +254,19 @@ const loadFromLocalStorage = () => {
+       configDeleteText.value.y = configRect.value.y + 10
+     }
+ 
++    if (Array.isArray(data.cameras)) {
++      cameras.value = data.cameras.map((c: any) => ({
++        id: c.id,
++        x: Number(c.x) || 0,
++        y: Number(c.y) || 0,
++        corners: Array.isArray(c.corners) ? c.corners.map(Number) : []
++      }))
++    }
++
+     // UI holatini tozalash
+     selectedShapeName.value = ''
+     editingSlotAreaId.value = null
++    editingCameraId.value = null
+   } catch (e) {
+     console.warn('Yuklashda xatolik:', e)
+   }
+@@ -274,7 +290,67 @@ const editingSlotArea = computed(() => {
+   return parkingSlotAreas.value.find(a => a.id === editingSlotAreaId.value) || null
+ })
+ 
+-const mode = ref<'PARKING' | 'SLOT_AREA'>('PARKING')
++const mode = ref<'PARKING' | 'SLOT_AREA' | 'CAMERA'>('PARKING')
++
++// --- Kamera state ---
++interface CameraData {
++  id: string
++  x: number       // parking-relative pixels
++  y: number
++  corners: number[] // [x1,y1, x2,y2, x3,y3, x4,y4]
++}
++
++const cameras = ref<CameraData[]>([])
++const selectedCameraId = ref<string | null>(null)
++
++const addCamera = () => {
++  if (!isDrawn.value) return
++  const id = `camera-${Date.now()}`
++  const W = configRect.value.width
++  const H = configRect.value.height
++  const cx = W / 2
++  const cy = H / 2
++  const P = PIXELS_PER_METER
++  // Default trapezoid: kamera o'ng tomonga qaragan holda
++  const clampX = (v: number) => Math.max(0, Math.min(W, v))
++  const clampY = (v: number) => Math.max(0, Math.min(H, v))
++  cameras.value.push({
++    id, x: cx, y: cy,
++    corners: [
++      clampX(cx + P * 1.5), clampY(cy - P * 1),   // yaqin-yuqori
++      clampX(cx + P * 1.5), clampY(cy + P * 1),   // yaqin-pastki
++      clampX(cx + P * 5),   clampY(cy + P * 3),   // uzoq-pastki
++      clampX(cx + P * 5),   clampY(cy - P * 3),   // uzoq-yuqori
++    ]
++  })
++  selectedCameraId.value = id
++}
++
++const handleDeleteCamera = (id: string) => {
++  cameras.value = cameras.value.filter(c => c.id !== id)
++  if (selectedCameraId.value === id) selectedCameraId.value = null
++}
++
++const handleSelectCamera = (id: string) => {
++  selectedCameraId.value = id
++}
++
++const handleUpdateCameraBody = (data: { id: string; x: number; y: number; corners?: number[] }) => {
++  const cam = cameras.value.find(c => c.id === data.id)
++  if (cam) {
++    cam.x = data.x
++    cam.y = data.y
++    if (data.corners) cam.corners = data.corners
++  }
++}
++
++const handleUpdateCameraCorner = (data: { id: string; index: number; x: number; y: number }) => {
++  const cam = cameras.value.find(c => c.id === data.id)
++  if (cam) {
++    cam.corners[data.index * 2] = data.x
++    cam.corners[data.index * 2 + 1] = data.y
++  }
++}
+ 
+ const addSlotArea = () => {
+   if (!isDrawn.value) return
+@@ -391,6 +467,8 @@ const resetDrawing = () => {
+   configRect.value.height = 0
+   parkingSlotAreas.value = []
+   editingSlotAreaId.value = null
++  cameras.value = []
++  selectedCameraId.value = null
+ }
+ 
+ const updateDimensions = (rectNode: any) => {
+@@ -539,14 +617,20 @@ const handleMouseDown = (e: any) => {
+ 
+   if (isDrawn.value) {
+     const isStageClicked = e.target === stage || targetName === 'background'
+-    
++    const isCameraElement = targetName === 'cameraBody' || targetName === 'cameraCorner'
++
++    // Kamera yoki uning burchaklaridan boshqa joyga bosilsa — deaktiv
++    if (!isCameraElement) {
++      selectedCameraId.value = null
++    }
++
+     if (isStageClicked) {
+       selectedShapeName.value = ''
+       editingSlotAreaId.value = null
+     } else {
+       let node = e.target
+       let name = node.name()
+-      
++
+       // SlotArea ichidagi elementlar bosilganda ham slotArea tanlanishi kerak
+       while (node && name !== 'slotArea' && node.getParent()) {
+         node = node.getParent()
+@@ -554,12 +638,10 @@ const handleMouseDown = (e: any) => {
+       }
+ 
+       if (name === 'slotArea') {
+-        // Hozircha slotArea uchun transformer yo'q, lekin uni tanlangan qilib belgilashimiz mumkin (kelajak uchun)
+-        selectedShapeName.value = '' 
++        selectedShapeName.value = ''
+         selectedSlotAreaId.value = node.id()
+       } else {
+         selectedShapeName.value = ''
+-        // Agar boshqa narsa (masalan mainRect) bosilsa, edit panelni yopish
+         editingSlotAreaId.value = null
+       }
+     }
+@@ -630,8 +712,9 @@ const resetZoom = () => {
+ <template>
+   <div class="controls">
+     <div class="mode-selector">
+-      <button :class="{ active: mode === 'PARKING' }" @click="mode = 'PARKING'">Parking sozlash</button>
+-      <button :class="{ active: mode === 'SLOT_AREA' }" @click="mode = 'SLOT_AREA'" :disabled="!isDrawn">Slot Area sozlash</button>
++      <button :class="{ active: mode === 'PARKING' }" @click="mode = 'PARKING'">Parking</button>
++      <button :class="{ active: mode === 'SLOT_AREA' }" @click="mode = 'SLOT_AREA'" :disabled="!isDrawn">Slot Area</button>
++      <button :class="{ active: mode === 'CAMERA' }" @click="mode = 'CAMERA'" :disabled="!isDrawn">Kamera</button>
+     </div>
+     <div v-if="mode === 'PARKING'" class="params">
+       <label>Width (m): <input type="number" v-model.number="parkingParams.width" step="0.1" @input="updateParkingDimensions" /></label>
+@@ -645,6 +728,11 @@ const resetZoom = () => {
+       <label>Angle (°): <input type="number" v-model.number="slotParams.angle" /></label>
+       <button @click="addSlotArea" class="draw-btn">Qo'shish</button>
+     </div>
++    <div v-if="mode === 'CAMERA'" class="params">
++      <button @click="addCamera" class="draw-btn camera-btn">+ Kamera qo'shish</button>
++      <span v-if="cameras.length > 0" class="cam-count">{{ cameras.length }} ta kamera</span>
++      <p v-if="cameras.length > 0" class="hint">Kamera ustiga bosib aktiv qiling</p>
++    </div>
+   </div>
+ 
+   <!-- O'ng yuqori burchak: saqlash tugmasi -->
+@@ -704,6 +792,8 @@ const resetZoom = () => {
+           :slots="parkingSlots"
+           :slotGroups="parkingSlotGroups"
+           :slotAreas="parkingSlotAreas"
++          :cameras="cameras"
++          :selectedCameraId="selectedCameraId"
+           :isDrawn="isDrawn"
+           :pixelsPerMeter="PIXELS_PER_METER"
+           :textScale="configKonva.textScale"
+@@ -713,7 +803,12 @@ const resetZoom = () => {
+           @rotate-slot-area="handleRotateSlotArea"
+           @edit-slot-area="handleEditSlotArea"
+           @update-slot-area-position="handleUpdateSlotAreaParams"
++          @delete-camera="handleDeleteCamera"
++          @select-camera="handleSelectCamera"
++          @update-camera-body="handleUpdateCameraBody"
++          @update-camera-corner="handleUpdateCameraCorner"
+         />
++
+       </v-layer>
+     </v-stage>
+     <SlotEdit
+@@ -759,6 +854,7 @@ body {
+   left: 20px;
+   z-index: 100;
+   background: white;
++  color: #333;
+   padding: 15px;
+   border-radius: 8px;
+   box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+@@ -777,6 +873,7 @@ body {
+   cursor: pointer;
+   border: 1px solid #ccc;
+   background: #f9f9f9;
++  color: #333;
+ }
+ 
+ .mode-selector button.active {
+@@ -817,6 +914,41 @@ body {
+   background: #1976d2;
+ }
+ 
++.camera-btn {
++  background: #1565c0;
++}
++
++.camera-btn:hover {
++  background: #0d47a1;
++}
++
++.hint {
++  margin: 0;
++  font-size: 12px;
++  color: #555;
++  font-style: italic;
++}
++
++.cam-count {
++  font-size: 12px;
++  color: #888;
++}
++
++.cancel-btn {
++  margin-top: 4px;
++  padding: 6px 10px;
++  background: #f44336;
++  color: white;
++  border: none;
++  cursor: pointer;
++  border-radius: 4px;
++  font-size: 13px;
++}
++
++.cancel-btn:hover {
++  background: #d32f2f;
++}
++
+ .zoom-controls {
+   position: fixed;
+   bottom: 24px;
+@@ -933,7 +1065,7 @@ body {
+ 
+ .modal-btn--cancel {
+   background: #f0f0f0;
+-  color: #555;
++  color: #333;
+ }
+ 
+ .modal-btn--cancel:hover {
