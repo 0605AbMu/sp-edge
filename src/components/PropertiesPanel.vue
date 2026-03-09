@@ -38,11 +38,17 @@ interface RoadData {
   name: string
 }
 
+interface ParkingAreaData {
+  width: number
+  height: number
+}
+
 const props = defineProps<{
   camera: CameraData | null
   slotArea: SlotAreaData | null
   gate: GateData | null
   road: RoadData | null
+  parkingArea: ParkingAreaData | null
   pixelsPerMeter: number
   isReadonly?: boolean
 }>()
@@ -52,6 +58,7 @@ const emit = defineEmits([
   'update-slot-area',
   'update-gate',
   'update-road',
+  'update-parking-area',
   'delete-camera',
   'delete-slot-area',
   'delete-gate',
@@ -62,6 +69,23 @@ const emit = defineEmits([
   'clone-gate',
   'clone-road',
 ])
+
+// ─── ParkingArea local state ──────────────────────────────────────────────────
+const paWidth = ref(50)
+const paHeight = ref(30)
+
+watch(() => props.parkingArea, (pa) => {
+  if (!pa) return
+  paWidth.value = pa.width
+  paHeight.value = pa.height
+}, { immediate: true })
+
+const applyParkingUpdate = () => {
+  emit('update-parking-area', {
+    width: paWidth.value,
+    height: paHeight.value
+  })
+}
 
 // ─── Camera local state ───────────────────────────────────────────────────────
 const camX = ref(0)
@@ -204,6 +228,7 @@ const activeType = computed(() => {
   if (props.slotArea) return 'slotArea'
   if (props.gate) return 'gate'
   if (props.road) return 'road'
+  if (props.parkingArea) return 'parkingArea'
   return null
 })
 
@@ -217,10 +242,11 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
         <template v-if="activeType === 'camera'">Kamera</template>
         <template v-else-if="activeType === 'slotArea'">Slot maydon</template>
         <template v-else-if="activeType === 'road'">Yo'lak</template>
+        <template v-else-if="activeType === 'parkingArea'">Parking maydon</template>
         <template v-else>Eshik</template>
       </span>
       <button
-        v-if="!isReadonly"
+        v-if="!isReadonly && activeType !== 'parkingArea'"
         class="delete-btn"
         @click="activeType === 'camera' ? emit('delete-camera', camera!.id)
                : activeType === 'slotArea' ? emit('delete-slot-area', slotArea!.id)
@@ -229,6 +255,23 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
         title="O'chirish"
       >×</button>
     </div>
+
+    <!-- ── PARKING AREA ─────────────────────────────────────────────────── -->
+    <template v-if="activeType === 'parkingArea' && parkingArea">
+      <div class="section-label">O'lchamlar</div>
+      <div class="prop-row">
+        <span class="prop-name">Eni (m)</span>
+        <input class="prop-input" type="number" step="0.5" v-model.number="paWidth" @change="applyParkingUpdate" :disabled="isReadonly" />
+      </div>
+      <div class="prop-row">
+        <span class="prop-name">Bo'yi (m)</span>
+        <input class="prop-input" type="number" step="0.5" v-model.number="paHeight" @change="applyParkingUpdate" :disabled="isReadonly" />
+      </div>
+      
+      <p class="hint-text-mini" style="margin-top: 12px; color: #888;">
+        Parking maydoni o'lchamlarini o'zgartirish orqali asosiy chizilgan maydonni kengaytirishingiz yoki qisqartirishingiz mumkin.
+      </p>
+    </template>
 
     <!-- ── CAMERA ────────────────────────────────────────────────────────── -->
     <template v-if="activeType === 'camera' && camera">
@@ -436,6 +479,36 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
         </button>
       </div>
     </template>
+
+    <!-- ── BROWSER PREVIEW ────────────────────────────────────────────────── -->
+    <div class="browser-preview-section">
+      <div class="section-label">O'tish</div>
+      <div class="browser-window">
+        <div class="browser-header">
+          <div class="browser-dots">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+          </div>
+          <div class="browser-address-bar">
+            <span class="lock-icon">🔒</span>
+            <span class="address-text">https://camera-stream.local/view/{{ activeType }}-{{ camera?.id || slotArea?.id || gate?.id || road?.id }}</span>
+          </div>
+        </div>
+        <div class="browser-content">
+          <div class="stream-placeholder">
+            <div class="live-badge">LIVE</div>
+            <div class="stream-icon">
+              <template v-if="activeType === 'camera'">📹</template>
+              <template v-else-if="activeType === 'slotArea'">🚗</template>
+              <template v-else-if="activeType === 'gate'">🚪</template>
+              <template v-else>🛣️</template>
+            </div>
+            <div class="stream-text">Video oqim yuklanmoqda...</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -672,5 +745,114 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
 .delete-btn-large:hover {
   background: #ff4444;
   color: #fff;
+}
+
+/* Browser Preview Styles */
+.browser-preview-section {
+  padding: 10px 0;
+  border-top: 1px solid #2e2e2e;
+}
+
+.browser-window {
+  margin: 10px 12px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+}
+
+.browser-header {
+  height: 28px;
+  background: #2a2a2a;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  gap: 12px;
+  border-bottom: 1px solid #333;
+}
+
+.browser-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dot.red { background: #ff5f56; }
+.dot.yellow { background: #ffbd2e; }
+.dot.green { background: #27c93f; }
+
+.browser-address-bar {
+  flex: 1;
+  height: 18px;
+  background: #111;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 6px;
+  font-size: 9px;
+  color: #666;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.lock-icon {
+  font-size: 8px;
+}
+
+.address-text {
+  opacity: 0.8;
+}
+
+.browser-content {
+  aspect-ratio: 16 / 9;
+  background: #000;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stream-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #ff4444;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  animation: pulse 2s infinite;
+}
+
+.stream-icon {
+  font-size: 24px;
+  opacity: 0.5;
+}
+
+.stream-text {
+  font-size: 10px;
+  color: #555;
+  font-style: italic;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
 }
 </style>

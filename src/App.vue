@@ -9,8 +9,8 @@ import Ruler from './components/Ruler.vue'
 
 // Transformer ref olib tashlandi (mainRect uchun endi kerak emas)
 const configKonva = ref({
-  width: 0,
-  height: 0,
+  width: window.innerWidth - 280,
+  height: window.innerHeight,
   scaleX: 1,
   scaleY: 1,
   x: 280, // Sidebar width
@@ -59,26 +59,118 @@ watch(() => configKonva.value.textScale, (newScale) => {
 
 const containerRef = ref<HTMLElement | null>(null)
 
+// --- State and Interfaces ---
+interface CameraData {
+  id: string
+  x: number       // parking-relative pixels
+  y: number
+  corners: number[] // [x1,y1, x2,y2, x3,y3, x4,y4]
+}
+
+interface GateData {
+  id: string
+  side: 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT'
+  x: number
+  y: number
+  width: number  // meters
+  type: 'ENTRANCE' | 'EXIT' | 'BOTH'
+  isOpen?: boolean
+  rotation?: number
+}
+
+interface RoadData {
+  id: string
+  x: number
+  y: number
+  width: number  // meters
+  height: number // meters
+  rotation: number
+  name: string
+}
+
+const cameras = shallowRef<CameraData[]>([])
+const selectedCameraId = ref<string | null>(null)
+const editingCameraId = ref<string | null>(null)
+
+const parkingSlotAreas = shallowRef<any[]>([])
+const selectedSlotAreaId = ref<string | null>(null)
+
+const gates = shallowRef<GateData[]>([])
+const selectedGateId = ref<string | null>(null)
+
+const roads = shallowRef<RoadData[]>([])
+const selectedRoadId = ref<string | null>(null)
+
+const isParkingSelected = ref(false)
+
+// Properties panel: selected component data
+const selectedCamera = computed(() =>
+  selectedCameraId.value ? cameras.value.find(c => c.id === selectedCameraId.value) || null : null
+)
+const selectedSlotArea = computed(() =>
+  selectedSlotAreaId.value ? parkingSlotAreas.value.find(a => a.id === selectedSlotAreaId.value) || null : null
+)
+const selectedGate = computed(() =>
+  selectedGateId.value ? gates.value.find(g => g.id === selectedGateId.value) || null : null
+)
+const selectedRoad = computed(() =>
+  roads.value.find(r => r.id === selectedRoadId.value) || null
+)
+const selectedParkingArea = computed(() =>
+  isParkingSelected.value && isDrawn.value ? parkingParams.value : null
+)
+
+const isRightSidebarVisible = computed(() => {
+  const visible = !!(selectedCamera.value || selectedSlotArea.value || selectedGate.value || selectedRoad.value || selectedParkingArea.value)
+  return visible
+})
+
 const updateSize = () => {
   if (containerRef.value) {
-    configKonva.value.width = window.innerWidth
+    const sidebarWidth = 280
+    const rightSidebarWidth = isRightSidebarVisible.value ? 280 : 0
+    configKonva.value.width = window.innerWidth - sidebarWidth - rightSidebarWidth
     configKonva.value.height = window.innerHeight
+    configKonva.value.x = 0
   }
 }
 
+watch(() => isRightSidebarVisible.value, () => {
+  nextTick(() => {
+    updateSize()
+  })
+})
+
 onMounted(() => {
-  updateSize()
   loadFromLocalStorage()
+  nextTick(() => {
+    updateSize()
+  })
   window.addEventListener('resize', updateSize)
   window.addEventListener('keydown', handleKeyDown)
   window.addEventListener('keyup', handleKeyUp)
+  window.addEventListener('mousedown', handleOutsideClick)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateSize)
   window.removeEventListener('keydown', handleKeyDown)
   window.removeEventListener('keyup', handleKeyUp)
+  window.removeEventListener('mousedown', handleOutsideClick)
 })
+
+const handleOutsideClick = (e: MouseEvent) => {
+  if (!showBottomSheet.value) return
+  
+  const target = e.target as HTMLElement
+  // Agar click bottom-controls ichidan bo'lsa (tugma yoki menu), yopmaymiz
+  const controls = document.querySelector('.bottom-controls')
+  if (controls && controls.contains(target)) {
+    return
+  }
+  
+  showBottomSheet.value = false
+}
 
 const handleKeyDown = (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
@@ -144,8 +236,8 @@ const handleKeyUp = (e: KeyboardEvent) => {
 const configRect = ref({
   x: 0,
   y: 0,
-  width: 0,
-  height: 0,
+  width: 1000,
+  height: 600,
   fill: '#2c2c2c',
   opacity: 1,
   visible: false,
@@ -274,13 +366,13 @@ const loadFromLocalStorage = () => {
     }
 
     if (data.configKonva) {
-      configKonva.value.x = Number(data.configKonva.x) ?? 280
+      configKonva.value.x = Number(data.configKonva.x) ?? 0
       configKonva.value.y = Number(data.configKonva.y) ?? 0
       configKonva.value.scaleX = Number(data.configKonva.scaleX) || 1
       configKonva.value.scaleY = Number(data.configKonva.scaleY) || 1
       configKonva.value.textScale = 1 / (Number(data.configKonva.scaleX) || 1)
     } else {
-      configKonva.value.x = 280
+      configKonva.value.x = 0
       configKonva.value.y = 0
       configKonva.value.scaleX = 1
       configKonva.value.scaleY = 1
@@ -377,24 +469,6 @@ const slotParams = ref({
   angle: 0
 })
 
-const parkingSlotAreas = shallowRef<any[]>([])
-const selectedSlotAreaId = ref<string | null>(null)
-// editingSlotAreaId va editPopupPos olib tashlandi - endi PropertiesPanel sidebar ichida
-
-// Properties panel: selected component data
-const selectedCamera = computed(() =>
-  selectedCameraId.value ? cameras.value.find(c => c.id === selectedCameraId.value) || null : null
-)
-const selectedSlotArea = computed(() =>
-  selectedSlotAreaId.value ? parkingSlotAreas.value.find(a => a.id === selectedSlotAreaId.value) || null : null
-)
-const selectedGate = computed(() =>
-  selectedGateId.value ? gates.value.find(g => g.id === selectedGateId.value) || null : null
-)
-const selectedRoad = computed(() =>
-  roads.value.find(r => r.id === selectedRoadId.value) || null
-)
-
 const handlePanelUpdateCamera = (data: any) => {
   handleUpdateCameraBody(data)
 }
@@ -434,7 +508,6 @@ const handlePanelUpdateGate = (data: any) => {
   }
 }
 
-const mode = ref<'PARKING' | 'SLOT_AREA' | 'CAMERA' | 'GATE' | 'ROAD'>('PARKING')
 const hoverSlotArea = ref<any>(null)
 
 const handleSlotAreaHoverChange = (data: any) => {
@@ -446,18 +519,6 @@ const handleSlotAreaHoverChange = (data: any) => {
 }
 
 // --- Yo'lak (Road) state ---
-interface RoadData {
-  id: string
-  x: number
-  y: number
-  width: number  // meters
-  height: number // meters
-  rotation: number
-  name: string
-}
-
-const roads = shallowRef<RoadData[]>([])
-const selectedRoadId = ref<string | null>(null)
 
 const addRoad = () => {
   if (isReadonly.value) return
@@ -489,6 +550,7 @@ const handleDeleteRoad = (id: string) => {
 }
 
 const handleSelectRoad = (id: string) => {
+  isParkingSelected.value = false
   selectedCameraId.value = null
   selectedSlotAreaId.value = null
   selectedGateId.value = null
@@ -522,17 +584,8 @@ const handleCloneRoad = (id: string) => {
 }
 
 // --- Kamera state ---
-interface CameraData {
-  id: string
-  x: number       // parking-relative pixels
-  y: number
-  corners: number[] // [x1,y1, x2,y2, x3,y3, x4,y4]
-}
 
-const cameras = shallowRef<CameraData[]>([])
-const selectedCameraId = ref<string | null>(null)
-const editingCameraId = ref<string | null>(null)
-const isReadonly = ref(true)
+const isReadonly = ref(false)
 
 const toggleReadonly = () => {
   // Avvalgi mantiq tanlovlarni o'chirib yuborar edi, endi buni olib tashlaymiz
@@ -540,24 +593,11 @@ const toggleReadonly = () => {
 }
 
 // --- Eshik (Gate) state ---
-interface GateData {
-  id: string
-  side: 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT'
-  x: number
-  y: number
-  width: number  // meters
-  type: 'ENTRANCE' | 'EXIT' | 'BOTH'
-  isOpen?: boolean
-  rotation?: number
-}
-
-const gates = shallowRef<GateData[]>([])
-const selectedGateId = ref<string | null>(null)
 
 const gateParams = ref({
   type: 'ENTRANCE' as 'ENTRANCE' | 'EXIT' | 'BOTH',
   side: 'TOP' as 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT',
-  width: 3
+  width: 4
 })
 
 const addGate = () => {
@@ -588,6 +628,7 @@ const handleDeleteGate = (id: string) => {
 }
 
 const handleSelectGate = (id: string) => {
+  isParkingSelected.value = false
   selectedCameraId.value = null
   selectedSlotAreaId.value = null
   selectedRoadId.value = null
@@ -654,6 +695,7 @@ const handleDeleteCamera = (id: string) => {
 
 const handleSelectCamera = (id: string) => {
   // Readonly rejimida bo'lganda ham tanlash mumkin
+  isParkingSelected.value = false
   selectedSlotAreaId.value = null
   selectedGateId.value = null
   selectedRoadId.value = null
@@ -725,7 +767,7 @@ const addSlotArea = () => {
   
   parkingSlotAreas.value.push(newArea)
   // Yangi SlotArea qo'shilganda avtomatik tanlab, sidebar'da ko'rsatamiz
-  handleEditSlotArea({ id, x: 50, y: 50 })
+  handleEditSlotArea(id)
 }
 
 const handleDeleteSlotArea = (id: string) => {
@@ -780,12 +822,13 @@ const handleUpdateSlotAreaParams = (data: any) => {
   }
 }
 
-const handleEditSlotArea = (data: { id: string, x: number, y: number, screenX?: number, screenY?: number }) => {
+const handleEditSlotArea = (id: string) => {
   // Slot areani tanlaymiz - sidebar properties panelda ko'rsatiladi
+  isParkingSelected.value = false
   selectedCameraId.value = null
   selectedGateId.value = null
   selectedRoadId.value = null
-  selectedSlotAreaId.value = data.id
+  selectedSlotAreaId.value = id
   sidebarTab.value = 'EDIT' // Har doim EDIT tabiga o'tamiz
 }
 
@@ -800,7 +843,6 @@ const resetDrawing = () => {
   configDeleteButton.value.visible = false
   configDeleteText.value.visible = false
   selectedShapeName.value = ''
-  mode.value = 'PARKING'
   
   // Reset values
   configRect.value.width = 0
@@ -832,9 +874,24 @@ const updateDimensions = (rectNode: any) => {
 }
 
 const parkingParams = ref({
-  width: 10,
-  height: 5
+  width: 50,
+  height: 30
 })
+
+const handleSelectParkingArea = () => {
+  selectedCameraId.value = null
+  selectedSlotAreaId.value = null
+  selectedGateId.value = null
+  selectedRoadId.value = null
+  isParkingSelected.value = true
+  sidebarTab.value = 'EDIT'
+}
+
+const handlePanelUpdateParkingArea = (data: { width: number; height: number }) => {
+  parkingParams.value.width = data.width
+  parkingParams.value.height = data.height
+  updateParkingDimensions()
+}
 
 const updateParkingDimensions = () => {
   if (!isDrawn.value) return
@@ -1065,151 +1122,87 @@ const resetZoom = () => {
   configKonva.value.scaleX = 1
   configKonva.value.scaleY = 1
   configKonva.value.textScale = 1
-  configKonva.value.x = 280 // Sidebar width
+  configKonva.value.x = 0
   configKonva.value.y = 0
 }
 
 const sidebarTab = ref('EDIT')
+
+const showBottomSheet = ref(false)
+const bottomSheetTab = ref('ADD')
+
+const toggleBottomSheet = (tab: string) => {
+  if (showBottomSheet.value && bottomSheetTab.value === tab) {
+    showBottomSheet.value = false
+  } else {
+    bottomSheetTab.value = tab
+    showBottomSheet.value = true
+  }
+}
 </script>
 
 <template>
   <!-- Chap sidebar - barcha boshqaruvlar -->
   <div class="left-sidebar">
-    <!-- Main sidebar tabs -->
-    <div class="sidebar-tabs">
-      <button :class="{ active: sidebarTab === 'ADD' }" @click="sidebarTab = 'ADD'" class="sidebar-tab-btn">
-        <span class="tab-icon-small">➕</span>
-      </button>
-      <button :class="{ active: sidebarTab === 'EDIT' }" @click="sidebarTab = 'EDIT'" class="sidebar-tab-btn">
-        <span class="tab-icon-small">⚙️</span>
-      </button>
-      <button :class="{ active: sidebarTab === 'SAVE' }" @click="sidebarTab = 'SAVE'" class="sidebar-tab-btn">
-        <span class="tab-icon-small">💾</span>
-      </button>
-      <button :class="{ active: sidebarTab === 'SETTINGS' }" @click="sidebarTab = 'SETTINGS'" class="sidebar-tab-btn">
-        <span class="tab-icon-small">⚙️</span>
-      </button>
+    <div class="sidebar-header">
+      <h3 class="sidebar-title">Elementlar brauzeri</h3>
     </div>
-
-    <div v-show="sidebarTab === 'ADD'" class="tab-pane">
-      <!-- Mode selector tabs -->
-      <div class="mode-tabs">
-        <button :class="{ active: mode === 'PARKING' }" @click="mode = 'PARKING'" :disabled="isReadonly" class="mode-tab">
-          <span class="tab-icon">🅿️</span>
-        </button>
-        <button :class="{ active: mode === 'SLOT_AREA' }" @click="mode = 'SLOT_AREA'" :disabled="!isDrawn || isReadonly" class="mode-tab">
-          <span class="tab-icon">🚗</span>
-        </button>
-        <button :class="{ active: mode === 'CAMERA' }" @click="mode = 'CAMERA'" :disabled="!isDrawn || isReadonly" class="mode-tab">
-          <span class="tab-icon">📹</span>
-        </button>
-        <button :class="{ active: mode === 'GATE' }" @click="mode = 'GATE'" :disabled="!isDrawn || isReadonly" class="mode-tab">
-          <span class="tab-icon">🚪</span>
-        </button>
-        <button :class="{ active: mode === 'ROAD' }" @click="mode = 'ROAD'" :disabled="!isDrawn || isReadonly" class="mode-tab">
-          <span class="tab-icon">🛣️</span>
-        </button>
+    
+    <div class="element-browser">
+      <div v-if="!isDrawn && cameras.length === 0 && gates.length === 0 && roads.length === 0" class="empty-state">
+        Elementlar yo'q
       </div>
-
-      <!-- Qo'shish formlari -->
-      <div class="sidebar-content">
-        <div v-show="mode === 'PARKING'" class="form-section">
-          <h3 class="section-title">Parking maydon</h3>
-          <label class="form-label">
-            <span>Kenglik (m)</span>
-            <input type="number" v-model.number="parkingParams.width" :disabled="isReadonly" step="0.1" @input="updateParkingDimensions" class="form-input" />
-          </label>
-          <label class="form-label">
-            <span>Uzunlik (m)</span>
-            <input type="number" v-model.number="parkingParams.height" :disabled="isReadonly" step="0.1" @input="updateParkingDimensions" class="form-input" />
-          </label>
-          <button v-if="!isDrawn" @click="createParking" :disabled="isReadonly" class="action-btn-primary">Chizish</button>
+      <div v-else class="element-list">
+        <div v-if="isDrawn" class="element-item" :class="{ active: isParkingSelected }" @click="handleSelectParkingArea">
+          <span class="element-icon">🅿️</span>
+          <span class="element-name">Parking maydon</span>
+        </div>
+        
+        <div v-for="cam in cameras" :key="cam.id" class="element-item" :class="{ active: selectedCameraId === cam.id }" @click="handleSelectCamera(cam.id)">
+          <span class="element-icon">📹</span>
+          <span class="element-name">Kamera {{ cam.id.slice(-4) }}</span>
         </div>
 
-        <div v-show="mode === 'SLOT_AREA'" class="form-section">
-          <h3 class="section-title">Yangi slot maydon</h3>
-          <label class="form-label">
-            <span>Slot soni</span>
-            <input type="number" v-model.number="slotParams.count" :disabled="isReadonly" class="form-input" />
-          </label>
-          <label class="form-label">
-            <span>Kenglik (m)</span>
-            <input type="number" v-model.number="slotParams.width" :disabled="isReadonly" step="0.1" class="form-input" />
-          </label>
-          <label class="form-label">
-            <span>Uzunlik (m)</span>
-            <input type="number" v-model.number="slotParams.height" :disabled="isReadonly" step="0.1" class="form-input" />
-          </label>
-          <label class="form-label">
-            <span>Burchak (°)</span>
-            <input type="number" v-model.number="slotParams.angle" :disabled="isReadonly" class="form-input" />
-          </label>
-          <button @click="addSlotArea" :disabled="isReadonly" class="action-btn-primary">+ Qo'shish</button>
+        <div v-for="sa in parkingSlotAreas" :key="sa.id" class="element-item" :class="{ active: selectedSlotAreaId === sa.id }" @click="handleEditSlotArea(sa.id)">
+          <span class="element-icon">🚗</span>
+          <span class="element-name">Slot maydon ({{ sa.slotCount }})</span>
         </div>
 
-        <div v-show="mode === 'CAMERA'" class="form-section">
-          <h3 class="section-title">Kameralar</h3>
-          <button @click="addCamera" :disabled="isReadonly" class="action-btn-primary">+ Kamera qo'shish</button>
-          <div v-if="cameras.length > 0" class="info-text">
-            <span class="count-badge">{{ cameras.length }} ta</span>
-            <p class="hint-text">Kamera ustiga bosib aktiv qiling</p>
-          </div>
+        <div v-for="gate in gates" :key="gate.id" class="element-item" :class="{ active: selectedGateId === gate.id }" @click="handleSelectGate(gate.id)">
+          <span class="element-icon">🚪</span>
+          <span class="element-name">Eshik ({{ gate.type }})</span>
         </div>
 
-        <div v-show="mode === 'GATE'" class="form-section">
-          <h3 class="section-title">Yangi eshik</h3>
-          <label class="form-label">
-            <span>Turi</span>
-            <select v-model="gateParams.type" :disabled="isReadonly" class="form-select">
-              <option value="ENTRANCE">Kirish</option>
-              <option value="EXIT">Chiqish</option>
-              <option value="BOTH">Kirish/Chiqish</option>
-            </select>
-          </label>
-          <label class="form-label">
-            <span>Tomon</span>
-            <select v-model="gateParams.side" :disabled="isReadonly" class="form-select">
-              <option value="TOP">Yuqori</option>
-              <option value="BOTTOM">Pastki</option>
-              <option value="LEFT">Chap</option>
-              <option value="RIGHT">O'ng</option>
-            </select>
-          </label>
-          <label class="form-label">
-            <span>Kenglik (m)</span>
-            <input type="number" v-model.number="gateParams.width" :disabled="isReadonly" step="0.5" min="1" class="form-input" />
-          </label>
-          <button @click="addGate" :disabled="isReadonly" class="action-btn-primary">+ Eshik qo'shish</button>
-          <div v-if="gates.length > 0" class="info-text">
-            <span class="count-badge">{{ gates.length }} ta</span>
-          </div>
-        </div>
-
-        <div v-show="mode === 'ROAD'" class="form-section">
-          <h3 class="section-title">Yo'lakchalar</h3>
-          <p class="section-desc">Mashinalar harakatlanishi uchun yo'l chizig'i</p>
-          <button @click="addRoad" :disabled="isReadonly" class="action-btn-primary">+ Yo'lak qo'shish</button>
-          <div v-if="roads.length > 0" class="info-text">
-            <span class="count-badge">{{ roads.length }} ta</span>
-          </div>
+        <div v-for="road in roads" :key="road.id" class="element-item" :class="{ active: selectedRoadId === road.id }" @click="handleSelectRoad(road.id)">
+          <span class="element-icon">🛣️</span>
+          <span class="element-name">{{ road.name || 'Yo\'lak' }}</span>
         </div>
       </div>
     </div>
+  </div>
 
-    <div v-show="sidebarTab === 'EDIT'" class="tab-pane">
-      <!-- Properties Panel - har doim render qilinadi, lekin v-show bilan ko'rsatiladi -->
-      <div v-show="selectedCamera || selectedSlotArea || selectedGate || selectedRoad" class="properties-section">
+  <!-- O'ng sidebar - element tahrirlash -->
+  <div v-if="isRightSidebarVisible" class="right-sidebar">
+    <div class="sidebar-header">
+      <h3 class="sidebar-title">Elementni tahrirlash</h3>
+    </div>
+
+    <div class="tab-pane">
+      <!-- Properties Panel - har doim render qilinadi -->
+      <div class="properties-section">
         <PropertiesPanel
           :camera="selectedCamera"
           :slotArea="selectedSlotArea"
           :gate="selectedGate"
           :road="selectedRoad"
+          :parkingArea="selectedParkingArea"
           :pixelsPerMeter="PIXELS_PER_METER"
           :isReadonly="isReadonly"
           @update-camera="handlePanelUpdateCamera"
           @update-slot-area="handlePanelUpdateSlotArea"
           @update-gate="handlePanelUpdateGate"
           @update-road="handleUpdateRoad"
+          @update-parking-area="handlePanelUpdateParkingArea"
           @delete-camera="handleDeleteCamera"
           @delete-slot-area="handleDeleteSlotArea"
           @delete-gate="handleDeleteGate"
@@ -1221,48 +1214,74 @@ const sidebarTab = ref('EDIT')
           @clone-road="handleCloneRoad"
         />
       </div>
-      <div v-show="!(selectedCamera || selectedSlotArea || selectedGate || selectedRoad)" class="empty-state">
-        <p>Tahrirlash uchun elementni tanlang</p>
-      </div>
     </div>
+  </div>
 
-    <div v-show="sidebarTab === 'SAVE'" class="tab-pane">
-      <!-- Saqlash tugmasi -->
-      <div class="save-section">
-        <h3 class="section-title">Saqlash</h3>
-        <p class="hint-text">Barcha o'zgarishlarni tizimga saqlash uchun quyidagi tugmani bosing.</p>
-        <button class="save-btn-sidebar" @click="requestSave" title="Saqlash (Ctrl+S)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-            <polyline points="17 21 17 13 7 13 7 21"/>
-            <polyline points="7 3 7 8 15 8"/>
-          </svg>
-          <span>Saqlash</span>
-        </button>
-      </div>
-    </div>
-
-    <div v-show="sidebarTab === 'SETTINGS'" class="tab-pane">
-      <!-- Sozlamalar -->
-      <div class="settings-section">
-        <h3 class="section-title">Sozlamalar</h3>
-        
-        <div class="settings-item">
-          <label class="toggle-container">
-            <input type="checkbox" v-model="showMouseIndicators">
-            <span class="toggle-slider"></span>
-            <span class="toggle-label">Sichqoncha ko'rsatkichi</span>
-          </label>
-          <p class="hint-text">Chizg'ichda sichqoncha koordinatalarini ko'rsatish.</p>
+  <!-- Pastki boshqaruv tugmalari -->
+  <div class="bottom-controls">
+    <!-- ADD dropdown -->
+    <div class="dropdown-container">
+      <button class="bottom-ctrl-btn" :class="{ active: showBottomSheet && bottomSheetTab === 'ADD' }" @click="toggleBottomSheet('ADD')">
+        <span>➕ Qo'shish</span>
+      </button>
+      <div v-if="showBottomSheet && bottomSheetTab === 'ADD'" class="dropdown-menu">
+        <div class="dropdown-header">Qo'shish</div>
+        <div class="form-row">
+          <button v-if="!isDrawn" @click="createParking" :disabled="isReadonly" class="action-btn-primary-mini">🅿️ Parking chizish</button>
+          <button @click="addSlotArea" :disabled="!isDrawn || isReadonly" class="action-btn-primary-mini">🚗 Slot qo'shish</button>
+          <button @click="addCamera" :disabled="!isDrawn || isReadonly" class="action-btn-primary-mini">📹 Kamera qo'shish</button>
+          <button @click="addGate" :disabled="!isDrawn || isReadonly" class="action-btn-primary-mini">🚪 Eshik qo'shish</button>
+          <button @click="addRoad" :disabled="!isDrawn || isReadonly" class="action-btn-primary-mini">🛣️ Yo'lak qo'shish</button>
         </div>
+      </div>
+    </div>
 
-        <div class="settings-item">
-          <label class="toggle-container">
-            <input type="checkbox" v-model="isReadonly" @change="toggleReadonly">
-            <span class="toggle-slider"></span>
-            <span class="toggle-label">Faqat o'qish rejimi</span>
-          </label>
-          <p class="hint-text">Yoqilganda barcha elementlar bloklanadi, faqat kameralarni ko'rish mumkin.</p>
+    <!-- SAVE dropdown -->
+    <div class="dropdown-container">
+      <button class="bottom-ctrl-btn" :class="{ active: showBottomSheet && bottomSheetTab === 'SAVE' }" @click="toggleBottomSheet('SAVE')">
+        <span>💾 Saqlash</span>
+      </button>
+      <div v-if="showBottomSheet && bottomSheetTab === 'SAVE'" class="dropdown-menu">
+        <div class="dropdown-header">Saqlash</div>
+        <div class="bs-pane">
+          <div class="save-section-horizontal">
+            <p class="hint-text-mini">Barcha o'zgarishlarni tizimga saqlash.</p>
+            <button class="save-btn-bs" @click="requestSave" :disabled="isReadonly">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/>
+              </svg>
+              <span>Saqlash</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS dropdown -->
+    <div class="dropdown-container">
+      <button class="bottom-ctrl-btn" :class="{ active: showBottomSheet && bottomSheetTab === 'SETTINGS' }" @click="toggleBottomSheet('SETTINGS')">
+        <span>⚙️ Sozlamalar</span>
+      </button>
+      <div v-if="showBottomSheet && bottomSheetTab === 'SETTINGS'" class="dropdown-menu">
+        <div class="dropdown-header">Sozlamalar</div>
+        <div class="dropdown-content-row">
+          <div class="settings-section-horizontal">
+            <div class="settings-item-mini">
+              <label class="toggle-container-mini">
+                <input type="checkbox" v-model="showMouseIndicators" style="display: none;">
+                <div class="toggle-slider-mini"></div>
+                <span class="toggle-label-mini">Sichqoncha ko'rsatkichi</span>
+              </label>
+            </div>
+            <div class="settings-item-mini">
+              <label class="toggle-container-mini">
+                <input type="checkbox" v-model="isReadonly" @change="toggleReadonly" style="display: none;">
+                <div class="toggle-slider-mini"></div>
+                <span class="toggle-label-mini">Faqat o'qish rejimi</span>
+              </label>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1279,31 +1298,30 @@ const sidebarTab = ref('EDIT')
     </div>
   </div>
 
-  <!-- Saqlandi xabari -->
   <div v-if="saveToastVisible" class="save-toast">Saqlandi ✓</div>
-  <div class="zoom-controls">
+  <div class="zoom-controls" :style="{ right: isRightSidebarVisible ? '304px' : '24px' }">
     <button class="zoom-btn" @click="zoomBy(1 / 1.2)" title="Kichraytirish">−</button>
     <button class="zoom-level" @click="resetZoom" title="100% ga qaytarish">{{ zoomPercent }}%</button>
     <button class="zoom-btn" @click="zoomBy(1.2)" title="Kattalashtirish">+</button>
   </div>
-  <div class="container" ref="containerRef">
+  <div class="container" ref="containerRef" :style="{ left: '280px', width: isRightSidebarVisible ? 'calc(100vw - 560px)' : 'calc(100vw - 280px)', margin: '0', padding: '0', border: 'none', display: 'block' }">
     <Ruler 
       type="horizontal" 
-      :offset="configKonva.x - 280" 
+      :offset="configKonva.x" 
       :scale="configKonva.scaleX" 
       :pixelsPerMeter="PIXELS_PER_METER" 
-      :viewSize="configKonva.width - 280"
-      :leftOffset="280"
+      :viewSize="configKonva.width"
+      :leftOffset="0"
       :mousePos="currentMousePos.x"
       :showIndicator="showMouseIndicators"
     />
     <Ruler 
       type="vertical" 
-      :offset="configKonva.y - 25" 
+      :offset="configKonva.y" 
       :scale="configKonva.scaleY" 
       :pixelsPerMeter="PIXELS_PER_METER" 
-      :viewSize="configKonva.height - 25"
-      :leftOffset="280"
+      :viewSize="configKonva.height"
+      :leftOffset="0"
       :mousePos="currentMousePos.y"
       :showIndicator="showMouseIndicators"
     />
@@ -1345,7 +1363,7 @@ const sidebarTab = ref('EDIT')
           @dragmove="handleMouseMove"
           @delete-slot-area="handleDeleteSlotArea"
           @rotate-slot-area="handleRotateSlotArea"
-          @edit-slot-area="handleEditSlotArea"
+          @edit-slot-area="handleEditSlotArea($event.id)"
           @update-slot-area-position="handleUpdateSlotAreaParams"
           @dragmove-slot-area="handleMouseMove"
           @slot-area-hover-change="handleSlotAreaHoverChange"
@@ -1473,7 +1491,8 @@ body {
 }
 
 .container {
-  position: relative;
+  position: fixed;
+  top: 0;
   width: 100vw;
   height: 100vh;
   background-color: #c8d4e0;
@@ -1493,100 +1512,396 @@ body {
   z-index: 100;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
-.sidebar-tabs {
+/* ═══ RIGHT SIDEBAR ═══ */
+.right-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 280px;
+  height: 100vh;
+  background: #1a1a1a;
+  border-left: 1px solid #333;
+  box-shadow: -2px 0 12px rgba(0,0,0,0.5);
+  z-index: 100;
   display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 12px 16px;
   background: #252525;
   border-bottom: 1px solid #333;
-  overflow-x: auto;
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE/Edge */
 }
 
-.sidebar-tabs::-webkit-scrollbar {
-  display: none; /* Chrome, Safari, Opera */
+.sidebar-header.border-top {
+  border-top: 1px solid #333;
 }
 
-.sidebar-tab-btn {
+.sidebar-title {
+  margin: 0;
+  font-size: 13px;
+  color: #f5c518;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.element-browser {
   flex: 1;
-  flex-shrink: 0;
+  overflow-y: auto;
+  background: #1a1a1a;
+}
+
+.element-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.element-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0;
-  padding: 12px 16px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: #888;
-  font-size: 11px;
-  font-weight: 600;
+  gap: 10px;
+  padding: 10px 16px;
   cursor: pointer;
-  transition: all 0.2s;
-  white-space: nowrap;
+  border-bottom: 1px solid #222;
+  transition: background 0.2s;
 }
 
-.sidebar-tab-btn:hover {
-  background: rgba(255,255,255,0.05);
-  color: #bbb;
+.element-item:hover {
+  background: #252525;
 }
 
-.sidebar-tab-btn.active {
-  color: #f5c518;
-  border-bottom-color: #f5c518;
-  background: rgba(245, 197, 24, 0.05);
+.element-item.active {
+  background: #2a2a2a;
+  border-left: 3px solid #f5c518;
 }
 
-.sidebar-tab-btn.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  filter: grayscale(1);
+.element-icon {
+  font-size: 16px;
 }
 
-.sidebar-tab-btn.disabled:hover {
-  background: transparent;
-  color: #888;
-}
-
-.tab-icon-small {
-  font-size: 14px;
+.element-name {
+  font-size: 13px;
+  color: #e0e0e0;
 }
 
 .tab-pane {
   flex: 1;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  background: #1a1a1a;
 }
 
-.empty-state {
-  padding: 40px 20px;
-  text-align: center;
-  color: #666;
-  font-style: italic;
+/* Bottom Sheet */
+.bottom-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 280px;
+  right: 0;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+  z-index: 200;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  max-height: 250px;
+}
+
+.bottom-sheet.open {
+  transform: translateY(0);
+}
+
+.bottom-sheet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px;
+  background: #252525;
+  border-bottom: 1px solid #333;
+}
+
+.bottom-sheet-tabs {
+  display: flex;
+  gap: 16px;
+}
+
+.bs-tab-btn {
+  padding: 12px 8px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #888;
   font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.left-sidebar::-webkit-scrollbar {
-  width: 6px;
+.bs-tab-btn.active {
+  color: #f5c518;
+  border-bottom-color: #f5c518;
 }
-.left-sidebar::-webkit-scrollbar-track {
+
+.close-bs-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.bottom-sheet-content {
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.mode-tabs-horizontal {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.mode-tab-mini {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #2a2a2a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #bbb;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mode-tab-mini.active {
+  background: #f5c518;
+  color: #111;
+  border-color: #f5c518;
+}
+
+.form-section-horizontal {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.form-label-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-label-mini span {
+  font-size: 11px;
+  color: #888;
+}
+
+.form-input-mini, .form-select-mini {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: #fff;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  width: 70px;
+}
+
+.form-select-mini {
+  width: auto;
+}
+
+.action-btn-primary-mini {
+  background: #f5c518;
+  color: #111;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.count-badge-mini {
+  background: #333;
+  color: #f5c518;
+  padding: 4px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.save-section-horizontal, .settings-section-horizontal {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.hint-text-mini {
+  font-size: 12px;
+  color: #888;
+  margin: 0;
+}
+
+.save-btn-bs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f5c518;
+  color: #111;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.settings-item-mini {
+  display: flex;
+  align-items: center;
+}
+
+.toggle-container-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.toggle-label-mini {
+  font-size: 12px;
+  color: #eee;
+}
+
+.toggle-slider-mini {
+  width: 34px;
+  height: 18px;
+  background: #333;
+  border-radius: 9px;
+  position: relative;
+  transition: 0.3s;
+}
+
+.toggle-slider-mini::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #888;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  transition: 0.3s;
+}
+
+input:checked + .toggle-slider-mini {
+  background: #f5c518;
+}
+
+input:checked + .toggle-slider-mini::before {
+  transform: translateX(16px);
   background: #111;
 }
-.left-sidebar::-webkit-scrollbar-thumb {
-  background: #444;
-  border-radius: 3px;
+
+/* Bottom Controls */
+.bottom-controls {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  background: rgba(26, 26, 26, 0.9);
+  backdrop-filter: blur(10px);
+  padding: 8px 16px;
+  border-radius: 30px;
+  border: 1px solid #444;
+  z-index: 200;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 
-/* Mode Tabs */
-.mode-tabs {
+.dropdown-container {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 16px;
+  width: max-content;
+  min-width: 200px;
+  max-width: 90vw;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  z-index: 210;
+  animation: slideUp 0.2s ease-out;
   display: flex;
-  gap: 0;
-  padding: 12px;
-  background: #212121;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dropdown-content-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.dropdown-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f5c518;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
   border-bottom: 1px solid #333;
+}
+
+.bottom-ctrl-btn {
+  background: transparent;
+  border: none;
+  color: #bbb;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 20px;
+  transition: all 0.2s;
+}
+
+.bottom-ctrl-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+
+.bottom-ctrl-btn.active {
+  background: #f5c518;
+  color: #111;
 }
 
 .mode-tab {
@@ -1676,10 +1991,117 @@ body {
 }
 
 /* Settings Section */
-.settings-section {
-  padding: 16px;
-  background: #1e1e1e;
-  height: 100%;
+.settings-section-horizontal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.settings-item-mini {
+  display: flex;
+  align-items: center;
+}
+
+.toggle-container-mini {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-label-mini {
+  font-size: 13px;
+  color: #eee;
+  font-weight: 500;
+}
+
+.toggle-slider-mini {
+  width: 40px;
+  height: 20px;
+  background: #333;
+  border-radius: 20px;
+  position: relative;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.4);
+}
+
+.toggle-slider-mini::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 2.65, 1.55);
+}
+
+input:checked + .toggle-slider-mini {
+  background: #f5c518;
+}
+
+input:checked + .toggle-slider-mini::before {
+  transform: translateX(20px);
+  background: #111;
+}
+
+/* Dropdown forms horizontal layout */
+.add-forms-container {
+  margin-top: 8px;
+}
+
+.form-section-horizontal {
+  display: flex;
+  align-items: center;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.action-btn-primary-mini {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #2a2a2a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #eee;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-btn-primary-mini:hover:not(:disabled) {
+  background: #333;
+  border-color: #f5c518;
+  color: #f5c518;
+}
+
+.action-btn-primary-mini:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: #1a1a1a;
+  color: #666;
+  border-color: #222;
+}
+
+.save-btn-bs:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: #222;
+  color: #666;
+  filter: grayscale(1);
 }
 
 .settings-item {
@@ -1918,6 +2340,7 @@ input:checked + .toggle-slider:before {
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.5);
   padding: 4px;
+  transition: right 0.3s ease;
 }
 
 .zoom-btn {
