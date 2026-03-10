@@ -33,7 +33,7 @@ const handleDragMove = (e: any) => {
   const dx = e.currentTarget.x() - dragSnapshot.value.bodyX
   const dy = e.currentTarget.y() - dragSnapshot.value.bodyY
   liveDragOffset.value = { dx, dy }
-  emit('dragmove', e)
+  // emit('dragmove', e) // removed to fix coverage area update during drag
 }
 
 const handleDragEnd = (e: any) => {

@@ -74,8 +74,8 @@ const handleClick = (e: any) => emit('click', e)
       @mouseleave="isHovered = false"
     />
 
-    <!-- Parking ichidagi elementlar (faqat maydon chizib bo'lingandan keyin) -->
-    <v-group v-if="isDrawn" :config="{ x: config.x, y: config.y }">
+    <!-- Parking ichidagi elementlar -->
+    <v-group :config="{ x: config.x, y: config.y }">
       <!-- Alohida slotlar -->
       <ParkingSlot 
         v-for="slot in slots" 

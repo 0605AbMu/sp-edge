@@ -261,11 +261,11 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
       <div class="section-label">O'lchamlar</div>
       <div class="prop-row">
         <span class="prop-name">Eni (m)</span>
-        <input class="prop-input" type="number" step="0.5" v-model.number="paWidth" @change="applyParkingUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.5" v-model.number="paWidth" @input="applyParkingUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Bo'yi (m)</span>
-        <input class="prop-input" type="number" step="0.5" v-model.number="paHeight" @change="applyParkingUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.5" v-model.number="paHeight" @input="applyParkingUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       
       <p class="hint-text-mini" style="margin-top: 12px; color: #888;">
@@ -278,11 +278,11 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
       <div class="section-label">Pozitsiya</div>
       <div class="prop-row">
         <span class="prop-name">X (m)</span>
-        <input class="prop-input" type="number" step="0.1" v-model.number="camX" @change="applyCameraUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.1" v-model.number="camX" @input="applyCameraUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Y (m)</span>
-        <input class="prop-input" type="number" step="0.1" v-model.number="camY" @change="applyCameraUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.1" v-model.number="camY" @input="applyCameraUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
 
       <div class="section-label">Kuzatuv burchaklari</div>
@@ -295,14 +295,16 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
           <input class="prop-input" type="number" step="0.1"
             :value="camCorners[(i - 1) * 2]"
             :disabled="isReadonly"
-            @change="(e: any) => { camCorners[(i-1)*2] = parseFloat(e.target.value); applyCameraUpdate() }" />
+            @input="(e: any) => { camCorners[(i-1)*2] = parseFloat(e.target.value); applyCameraUpdate() }"
+            @keydown.enter="($event.target as HTMLInputElement).blur()" />
         </div>
         <div class="prop-row">
           <span class="prop-name indent">Y (m)</span>
           <input class="prop-input" type="number" step="0.1"
             :value="camCorners[(i - 1) * 2 + 1]"
             :disabled="isReadonly"
-            @change="(e: any) => { camCorners[(i-1)*2+1] = parseFloat(e.target.value); applyCameraUpdate() }" />
+            @input="(e: any) => { camCorners[(i-1)*2+1] = parseFloat(e.target.value); applyCameraUpdate() }"
+            @keydown.enter="($event.target as HTMLInputElement).blur()" />
         </div>
       </template>
 
@@ -324,33 +326,33 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
       <div class="section-label">Pozitsiya</div>
       <div class="prop-row">
         <span class="prop-name">X (m)</span>
-        <input class="prop-input" type="number" step="0.1" v-model.number="saX" @change="applySlotAreaUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.1" v-model.number="saX" @input="applySlotAreaUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Y (m)</span>
-        <input class="prop-input" type="number" step="0.1" v-model.number="saY" @change="applySlotAreaUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.1" v-model.number="saY" @input="applySlotAreaUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Burish (°)</span>
-        <input class="prop-input" type="number" step="90" v-model.number="saRotation" @change="applySlotAreaUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="90" v-model.number="saRotation" @input="applySlotAreaUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
 
       <div class="section-label">Slot sozlamalari</div>
       <div class="prop-row">
         <span class="prop-name">Soni</span>
-        <input class="prop-input" type="number" min="1" step="1" v-model.number="saCount" @change="applySlotAreaUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" min="1" step="1" v-model.number="saCount" @input="applySlotAreaUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Kenglik (m)</span>
-        <input class="prop-input" type="number" step="0.1" v-model.number="saWidth" @change="applySlotAreaUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.1" v-model.number="saWidth" @input="applySlotAreaUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Uzunlik (m)</span>
-        <input class="prop-input" type="number" step="0.1" v-model.number="saHeight" @change="applySlotAreaUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.1" v-model.number="saHeight" @input="applySlotAreaUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Burchak (°)</span>
-        <input class="prop-input" type="number" step="1" v-model.number="saAngle" @change="applySlotAreaUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="1" v-model.number="saAngle" @input="applySlotAreaUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
 
       <div v-if="!isReadonly" class="section-label">Amallar</div>
@@ -375,7 +377,7 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
       <div class="section-label">Eshik sozlamalari</div>
       <div class="prop-row">
         <span class="prop-name">Turi</span>
-        <select class="prop-select" v-model="gateType" @change="applyGateUpdate" :disabled="isReadonly">
+        <select class="prop-select" v-model="gateType" @input="applyGateUpdate" :disabled="isReadonly">
           <option value="ENTRANCE">Kirish</option>
           <option value="EXIT">Chiqish</option>
           <option value="BOTH">Kirish/Chiqish</option>
@@ -383,7 +385,7 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
       </div>
       <div class="prop-row">
         <span class="prop-name">Tomon</span>
-        <select class="prop-select" v-model="gateSide" @change="applyGateUpdate" :disabled="isReadonly">
+        <select class="prop-select" v-model="gateSide" @input="applyGateUpdate" :disabled="isReadonly">
           <option value="TOP">Yuqori</option>
           <option value="BOTTOM">Pastki</option>
           <option value="LEFT">Chap</option>
@@ -392,12 +394,12 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
       </div>
       <div class="prop-row">
         <span class="prop-name">Kenglik (m)</span>
-        <input class="prop-input" type="number" step="0.5" min="1" v-model.number="gateWidth" @change="applyGateUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.5" min="1" v-model.number="gateWidth" @input="applyGateUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Burish (°)</span>
         <div class="prop-input-group">
-          <input class="prop-input" type="number" step="5" v-model.number="gateRotation" @change="applyGateUpdate" :disabled="isReadonly" />
+          <input class="prop-input" type="number" step="5" v-model.number="gateRotation" @input="applyGateUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
           <input type="range" min="0" max="360" step="1" v-model.number="gateRotation" @input="applyGateUpdate" class="prop-slider" :disabled="isReadonly" />
         </div>
       </div>
@@ -405,11 +407,11 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
       <div class="section-label">Pozitsiya</div>
       <div class="prop-row">
         <span class="prop-name">X (m)</span>
-        <input class="prop-input" type="number" step="0.1" v-model.number="gateX" @change="applyGateUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.1" v-model.number="gateX" @input="applyGateUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Y (m)</span>
-        <input class="prop-input" type="number" step="0.1" v-model.number="gateY" @change="applyGateUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.1" v-model.number="gateY" @input="applyGateUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
 
       <div v-if="!isReadonly" class="section-label">Amallar</div>
@@ -434,22 +436,22 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
       <div class="section-label">Umumiy</div>
       <div class="prop-row">
         <span class="prop-name">Nomi</span>
-        <input class="prop-input" type="text" v-model="roadName" @change="applyRoadUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="text" v-model="roadName" @input="applyRoadUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       
       <div class="section-label">Pozitsiya</div>
       <div class="prop-row">
         <span class="prop-name">X (m)</span>
-        <input class="prop-input" type="number" step="0.1" v-model.number="roadX" @change="applyRoadUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.1" v-model.number="roadX" @input="applyRoadUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Y (m)</span>
-        <input class="prop-input" type="number" step="0.1" v-model.number="roadY" @change="applyRoadUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" step="0.1" v-model.number="roadY" @input="applyRoadUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
       <div class="prop-row">
         <span class="prop-name">Burish (°)</span>
         <div class="prop-input-group">
-          <input class="prop-input" type="number" step="5" v-model.number="roadRotation" @change="applyRoadUpdate" :disabled="isReadonly" />
+          <input class="prop-input" type="number" step="5" v-model.number="roadRotation" @input="applyRoadUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
           <input type="range" min="0" max="360" step="1" v-model.number="roadRotation" @input="applyRoadUpdate" class="prop-slider" :disabled="isReadonly" />
         </div>
       </div>
@@ -458,13 +460,13 @@ const cornerLabel = (i: number) => ['B1', 'B2', 'B3', 'B4'][i]
       <div class="prop-row">
         <span class="prop-name">Kenglik (m)</span>
         <div class="prop-input-group">
-          <input class="prop-input" type="number" min="1" max="100" step="0.1" v-model.number="roadWidth" @change="applyRoadUpdate" :disabled="isReadonly" />
+          <input class="prop-input" type="number" min="1" max="100" step="0.1" v-model.number="roadWidth" @input="applyRoadUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
           <input type="range" min="1" max="50" step="0.5" v-model.number="roadWidth" @input="applyRoadUpdate" class="prop-slider" :disabled="isReadonly" />
         </div>
       </div>
       <div class="prop-row">
         <span class="prop-name">Balandlik (m)</span>
-        <input class="prop-input" type="number" min="1" max="20" step="0.1" v-model.number="roadHeight" @change="applyRoadUpdate" :disabled="isReadonly" />
+        <input class="prop-input" type="number" min="1" max="20" step="0.1" v-model.number="roadHeight" @input="applyRoadUpdate" @keydown.enter="($event.target as HTMLInputElement).blur()" :disabled="isReadonly" />
       </div>
 
       <div v-if="!isReadonly" class="section-label">Amallar</div>
